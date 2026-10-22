@@ -1,0 +1,37 @@
+# The manifest of the operator: what `kubeops generate operator` writes into generated/ (CRD, RBAC, Deployment, Namespace), with the
+# security of the Deployment added here. build/manifest.sh renders it into deploy/chroma-operator.yaml, the single file to apply.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - generated
+images:
+  - name: ghcr.io/chromadotnet/chroma-operator
+    newTag: dev
+patches:
+  - target:
+      kind: Deployment
+      name: operator
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext
+        value:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+      # The image of a ChromaServer without spec.image, and the repositories a ChromaServer can use (comma separated, or *).
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: CHROMA_DEFAULT_IMAGE, value: "docker.io/chromadb/chroma:1.5.9"}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: CHROMA_ALLOWED_IMAGES, value: "docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma"}

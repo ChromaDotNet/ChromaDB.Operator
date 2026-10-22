@@ -1,9 +1,139 @@
 # ChromaDB.Operator
 
-A Kubernetes operator for single-node [Chroma](https://www.trychroma.com/), written in .NET with [KubeOps](https://github.com/dotnet/dotnet-operator-sdk).
+A Kubernetes operator for single-node [Chroma](https://www.trychroma.com/) 1.x, written in .NET with
+[KubeOps](https://github.com/dotnet/dotnet-operator-sdk). It follows the patterns of [CloudNativePG](https://cloudnative-pg.io/):
+the operator manages the Pod and its PersistentVolumeClaim directly, without a StatefulSet, and keeps the state in the status of the
+resource.
 
 Community project, not affiliated with Chroma.
 
-> Work in progress: nothing is released yet.
+> v0.1, work in progress: nothing is released yet, and the API can change.
 
-Licensed under the [Apache License 2.0](LICENSE).
+## What v0.1 does
+
+- A `ChromaServer` gives one Chroma server: a PersistentVolumeClaim for `/data`, a Pod, a ConfigMap with the configuration, and a Service.
+- A change of the configuration restarts the Pod. The data stays on the claim.
+- The Pod runs as a non-root user, with a read-only root filesystem and `/tmp` as an `emptyDir`. Chroma needs a writable `/tmp`: without
+  it SQLite fails at the start. The probes are HTTP, since the image of Chroma has no `curl`.
+- A new image replaces the Pod. `status.dataVersion` is the highest version of Chroma that has run on the data. An older image is
+  refused, because Chroma migrates the data at its start and an older version does not open it again. Version 1.0.0, for example,
+  panics on data opened by 1.5.9.
+- The image needs an exact version tag, like `docker.io/chromadb/chroma:1.5.9`. The API refuses `latest` and the development tags.
+- Without an image, the operator writes its default image into the spec. A new version of the operator therefore does not change
+  the version of the servers already created.
+- Only the repositories the operator allows can run. By default these are `docker.io/chromadb/chroma` and
+  `ghcr.io/chroma-core/chroma`. Whoever can create a ChromaServer chooses its image, and the operator runs it.
+
+Not yet: backups (with CSI VolumeSnapshots), resize of the claim, hibernation, metrics, a Helm chart, authentication, distributed Chroma.
+
+## Install
+
+There is no published image yet. Build it, load it into the cluster, and apply the manifest:
+
+```
+docker build -t ghcr.io/chromadotnet/chroma-operator:dev .
+kubectl apply -f deploy/chroma-operator.yaml
+```
+
+`deploy/chroma-operator.yaml` has the CustomResourceDefinition, the RBAC, and the Deployment of the operator in the namespace
+`chroma-operator-system`. Two environment variables of the Deployment configure the operator:
+
+| Variable | Default | |
+|---|---|---|
+| `CHROMA_DEFAULT_IMAGE` | `docker.io/chromadb/chroma:1.5.9` | The image of a ChromaServer without `spec.image`. |
+| `CHROMA_ALLOWED_IMAGES` | `docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma` | The repositories a ChromaServer can use, separated by commas, or `*` for any. |
+
+Who can create a ChromaServer is up to the RBAC of the cluster, as for any other resource.
+
+## A ChromaServer
+
+```yaml
+apiVersion: chroma.chromadotnet.org/v1alpha1
+kind: ChromaServer
+metadata:
+  name: demo
+spec:
+  storage:
+    size: 10Gi
+  resources:
+    requests: {cpu: 500m, memory: 2Gi}
+    limits: {memory: 4Gi}
+```
+
+```
+$ kubectl get chromaserver
+NAME   PHASE   IMAGE                             DATA    AGE
+demo   Ready   docker.io/chromadb/chroma:1.5.9   1.5.9   40s
+```
+
+Clients connect to `http://demo-rw.<namespace>.svc:8000`, which is also in `status.endpoint`.
+
+| Field | |
+|---|---|
+| `image` | The image of Chroma with an exact version tag, optionally followed by `@sha256:<digest>`. Empty: the default image of the operator, written into the spec. |
+| `imagePullPolicy` | `IfNotPresent` by default. |
+| `storage.size`, `storage.storageClass` | The PersistentVolumeClaim of `/data`. An empty class means the default class of the cluster. |
+| `resources` | Requests and limits of the container. Write quantities as strings, like `"1"` or `500m`. |
+| `config.maxPayloadSizeBytes`, `config.corsAllowOrigins` | `max_payload_size_bytes` and `cors_allow_origins` of Chroma, in the ConfigMap mounted at `/config.yaml`. |
+| `service.type`, `service.annotations` | The Service `<name>-rw`, `ClusterIP` by default. |
+| `pvcDeletionPolicy` | `Retain` (default) keeps the claim and the data when the ChromaServer is deleted. `Delete` deletes them. |
+| `nodeSelector`, `tolerations`, `priorityClassName` | Scheduling of the Pod. |
+
+The status has `phase`, which is `Creating`, `Ready`, `Updating` or `Failed`, and the conditions `Ready` and `UpgradeBlocked`, whose
+`reason` says why: for example `PodReady`, `NameConflict`, `ServiceRefused`, `PodRefused`, `CrashLoopBackOff`, `Downgrade`,
+`ImageNotAllowed` or `DataVersionUnknown`. It also has:
+
+| Field | |
+|---|---|
+| `image` | The image of the Pod, once it is ready. |
+| `dataVersion` | The highest version of Chroma that has run on the data. It goes up before a newer Pod is created, since Chroma can migrate the data before the Pod reports that it started. |
+| `recoveryImage` | The newest image seen that is allowed and not older than the data: the image a server whose spec is refused starts again with. |
+| `dataVersionUnknown`, `dataVersionUnknownIncident` | Set when an image without a version ran on the data (see below). |
+| `endpoint`, `pod`, `pvc`, `observedGeneration` | |
+
+**An image that is not allowed** starts nothing. If a Pod is already running, it stays, and `UpgradeBlocked` explains why.
+
+**An older image.** If `spec.image` is older than `status.dataVersion`, the running Pod stays, and `UpgradeBlocked` explains why. The
+annotation `chroma.chromadotnet.org/allow-downgrade: "true"` forces the older image, for versions that share the same data format.
+When a new Pod is needed, a refused server starts one with `status.recoveryImage`.
+
+**An image without a version.** A Pod edited by hand to an image like `latest` makes the version of the data unknown. While it is
+unknown, the operator replaces or starts no Pod; a running Pod stays. The condition `UpgradeBlocked` gives a code. Once you know the
+highest version that has run on the data, annotate the ChromaServer with
+`chroma.chromadotnet.org/declared-data-version: "<x.y.z>/<code>"`. A declaration names one incident: a later one needs a new
+declaration.
+
+**A retained claim.** The data version is also kept on the claim, with whether it is unknown. A ChromaServer created again on a
+retained claim therefore knows them.
+
+**Writes the API refuses**, like a claim of size 0, a Pod whose requests exceed its limits, an annotation key that is not valid, or a
+ResourceQuota that is used up, fail the server with the explanation of the API, for example `PodRefused`.
+
+**Objects of others.** The operator never changes a Pod, ConfigMap or Service with the name of one of its objects that it did not
+create for this ChromaServer: the server fails with the reason `NameConflict`. A claim `<name>-1` is used only if the server controls
+it, or if it has the labels of a claim retained by a ChromaServer of this name. To give the data of another claim to a ChromaServer,
+label it with `chroma.chromadotnet.org/server=<name>` and `app.kubernetes.io/managed-by=chroma-operator`.
+
+**Names.** The name of a ChromaServer is a DNS label of at most 60 characters, so that its Service `<name>-rw` is a valid DNS label.
+
+## Development
+
+The project targets .NET 10 and uses KubeOps 13.3.4.
+
+```
+dotnet test tests/ChromaDotNet.Operator.Tests      # unit tests
+bash build/manifest.sh                             # regenerates deploy/chroma-operator.yaml from the code
+```
+
+The end-to-end tests run against a k3d cluster. Every command gets the kubeconfig and the context of the test cluster explicitly,
+and the current context of the machine is never used:
+
+```
+k3d cluster create chroma-op --kubeconfig-switch-context=false
+k3d kubeconfig get chroma-op > <dir>/kubeconfig
+CHROMA_OPERATOR_KUBECONFIG=<dir>/kubeconfig CHROMA_OPERATOR_CONTEXT=k3d-chroma-op bash build/e2e.sh
+```
+
+## License
+
+[Apache License 2.0](LICENSE).
