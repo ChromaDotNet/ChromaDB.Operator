@@ -1,5 +1,9 @@
 using ChromaDotNet.Operator.Entities;
+using k8s;
 using k8s.Models;
+using KubeOps.KubernetesClient;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
 
 namespace ChromaDotNet.Operator.Tests;
 
@@ -48,4 +52,21 @@ internal static class Fixtures
 	}
 
 	public static V1Condition Condition(Outcome outcome, string type) => outcome.Status.Conditions.Single(c => c.Type == type);
+
+	/// <summary>A logger that keeps the ids of the events it gets.</summary>
+	public sealed class ListLogger<T> : ILogger<T>
+	{
+		public List<int> Events { get; } = [];
+
+		public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+		public bool IsEnabled(LogLevel logLevel) => true;
+
+		public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+			Events.Add(eventId.Id);
+	}
+
+	/// <summary>The Pods a controller with a fake client deleted: it deletes them through the API client, with preconditions.</summary>
+	public static int PodDeletes(IKubernetesClient client) =>
+		client.ApiClient.CoreV1.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(ICoreV1Operations.DeleteNamespacedPodWithHttpMessagesAsync));
 }

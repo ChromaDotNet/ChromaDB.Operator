@@ -266,6 +266,14 @@ spec:
     subresources:
       status: {}
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    operator: chroma-operator
+  name: chroma-operator
+  namespace: chroma-operator-system
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -275,78 +283,49 @@ metadata:
 rules:
 - apiGroups:
   - ""
+  nonResourceURLs: []
   resources:
   - configmaps
   - persistentvolumeclaims
-  - pods
   - services
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - pods
   verbs:
   - get
   - list
   - watch
   - create
   - update
-  - patch
   - delete
-- apiGroups:
-  - ""
-  resources:
-  - events
-  verbs:
-  - get
-  - list
-  - create
-  - update
-- apiGroups:
-  - ""
-  resources:
-  - persistentvolumeclaims/status
-  verbs:
-  - get
-  - update
-  - patch
-- apiGroups:
-  - ""
-  resources:
-  - pods/status
-  verbs:
-  - get
-  - update
-  - patch
-- apiGroups:
-  - ""
-  resources:
-  - services/status
-  verbs:
-  - get
-  - update
-  - patch
 - apiGroups:
   - chroma.chromadotnet.org
   resources:
   - chromaservers
   verbs:
-  - '*'
+  - get
+  - list
+  - watch
+  - update
+- apiGroups:
+  - chroma.chromadotnet.org
+  nonResourceURLs: []
+  resources:
+  - chromaservers/finalizers
+  verbs:
+  - update
 - apiGroups:
   - chroma.chromadotnet.org
   resources:
   - chromaservers/status
   verbs:
-  - get
   - update
-  - patch
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -360,7 +339,7 @@ roleRef:
   name: chroma-operator-operator-role
 subjects:
 - kind: ServiceAccount
-  name: default
+  name: chroma-operator
   namespace: chroma-operator-system
 ---
 apiVersion: apps/v1
@@ -414,4 +393,5 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      serviceAccountName: chroma-operator
       terminationGracePeriodSeconds: 10

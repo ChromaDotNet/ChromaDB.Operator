@@ -28,12 +28,17 @@ Not yet: backups (with CSI VolumeSnapshots), resize of the claim, hibernation, m
 
 ## Install
 
-There is no published image yet. Build it, load it into the cluster, and apply the manifest:
+There is no published image yet. Build it, load it into the nodes of the cluster, and apply the manifest:
 
 ```
 docker build -t ghcr.io/chromadotnet/chroma-operator:dev .
+k3d image import ghcr.io/chromadotnet/chroma-operator:dev -c <cluster>            # k3d
+kind load docker-image ghcr.io/chromadotnet/chroma-operator:dev --name <cluster>   # kind
 kubectl apply -f deploy/chroma-operator.yaml
 ```
+
+On other clusters, push the image to a registry the nodes can pull from, then set it with
+`kubectl -n chroma-operator-system set image deploy/chroma-operator-operator operator=<registry>/chroma-operator:<tag>`.
 
 `deploy/chroma-operator.yaml` has the CustomResourceDefinition, the RBAC, and the Deployment of the operator in the namespace
 `chroma-operator-system`. Two environment variables of the Deployment configure the operator:
@@ -44,6 +49,38 @@ kubectl apply -f deploy/chroma-operator.yaml
 | `CHROMA_ALLOWED_IMAGES` | `docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma` | The repositories a ChromaServer can use, separated by commas, or `*` for any. |
 
 Who can create a ChromaServer is up to the RBAC of the cluster, as for any other resource.
+
+The operator runs as the ServiceAccount `chroma-operator`. Its ClusterRole has only what the operator uses:
+- ChromaServers: read, watch and update; update of their status and of their finalizers;
+- Pods: read, watch, create, update and delete;
+- ConfigMaps, Services and PersistentVolumeClaims: read, create and update.
+
+The operator never deletes a claim.
+
+## Uninstall
+
+`kubectl delete -f deploy/chroma-operator.yaml` also deletes the CustomResourceDefinition, and with it every ChromaServer of the
+cluster. Their Pods, Services and ConfigMaps go too, and so do the claims of the servers with `pvcDeletionPolicy: Delete`.
+
+The manifest deletes the namespace of the operator first, so the operator stops before its ChromaServers are deleted. A ChromaServer
+that owns its claim, with `Delete`, has a finalizer that only the operator removes (see below). With the operator gone, such a server
+stays in deletion, and so do the CustomResourceDefinition, the namespace that holds the server, and `kubectl delete` itself.
+
+Uninstall in this order:
+1. Set `Retain` on the ChromaServers whose data you want to keep.
+2. Delete the ChromaServers while the operator runs, and wait until they are gone:
+   ```
+   kubectl delete chromaserver --all -A
+   kubectl wait --for=delete chromaserver --all -A --timeout=5m
+   ```
+3. Delete the manifest.
+
+If the manifest was deleted first and the deletion waits, remove the finalizer from the ChromaServers that are left. Their claims, owned
+with `Delete`, are deleted with them:
+```
+kubectl get chromaserver -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name --no-headers |
+  while read ns name; do kubectl -n "$ns" patch chromaserver "$name" --type=merge -p '{"metadata":{"finalizers":null}}'; done
+```
 
 ## A ChromaServer
 
@@ -76,7 +113,7 @@ Clients connect to `http://demo-rw.<namespace>.svc:8000`, which is also in `stat
 | `resources` | Requests and limits of the container. Write quantities as strings, like `"1"` or `500m`. |
 | `config.maxPayloadSizeBytes`, `config.corsAllowOrigins` | `max_payload_size_bytes` and `cors_allow_origins` of Chroma, in the ConfigMap mounted at `/config.yaml`. |
 | `service.type`, `service.annotations` | The Service `<name>-rw`, `ClusterIP` by default. |
-| `pvcDeletionPolicy` | `Retain` (default) keeps the claim and the data when the ChromaServer is deleted. `Delete` deletes them. |
+| `pvcDeletionPolicy` | `Retain` (default) keeps the claim when the ChromaServer is deleted. `Delete` deletes the claim with it. Whether the volume and its data go too depends on the `reclaimPolicy` of the StorageClass: most dynamic classes use `Delete`. |
 | `nodeSelector`, `tolerations`, `priorityClassName` | Scheduling of the Pod. |
 
 The status has `phase`, which is `Creating`, `Ready`, `Updating` or `Failed`, and the conditions `Ready` and `UpgradeBlocked`, whose
@@ -95,7 +132,13 @@ The status has `phase`, which is `Creating`, `Ready`, `Updating` or `Failed`, an
 
 **An older image.** If `spec.image` is older than `status.dataVersion`, the running Pod stays, and `UpgradeBlocked` explains why. The
 annotation `chroma.chromadotnet.org/allow-downgrade: "true"` forces the older image, for versions that share the same data format.
-When a new Pod is needed, a refused server starts one with `status.recoveryImage`.
+Only the exact value `true` counts. When a new Pod is needed, a refused server starts one with `status.recoveryImage`.
+
+**Rolling back a failed upgrade.** The data version goes up before the new Pod is created. Going back to the previous image after an
+upgrade that failed, even one whose image was never pulled, is therefore a downgrade: it needs the annotation.
+
+**Annotations take up to 30 seconds.** A change to the annotations alone does not start a pass, since only a change to the spec
+does. The operator reads `allow-downgrade` and `declared-data-version` at its next periodic pass, within 30 seconds.
 
 **An image without a version.** A Pod edited by hand to an image like `latest` makes the version of the data unknown. While it is
 unknown, the operator replaces or starts no Pod; a running Pod stays. The condition `UpgradeBlocked` gives a code. Once you know the
@@ -105,6 +148,19 @@ declaration.
 
 **A retained claim.** The data version is also kept on the claim, with whether it is unknown. A ChromaServer created again on a
 retained claim therefore knows them.
+
+**Deleting a ChromaServer.**
+- A ChromaServer that owns its claim, with `Delete`, has the finalizer `chroma.chromadotnet.org/claimfinalizer`. The operator adds it
+  before it makes the server an owner of the claim, and removes it after the server is no longer one.
+- A change to `Retain` counts even when the ChromaServer is deleted right after it, or while the operator is stopped. The finalizer
+  keeps the ChromaServer until the operator has removed it from the owners of the claim.
+- A change to `Delete` counts once a pass has applied it, within seconds. A ChromaServer deleted before that keeps its claim, and the
+  operator says so in its log.
+- While the operator is not running, a deleted ChromaServer that owns its claim waits, and so does a namespace being deleted with it.
+  One with `Retain` is deleted at once.
+
+`kubectl delete --cascade=foreground` is the exception: Kubernetes deletes the owned objects at once, alongside the finalizer. After a
+change to `Retain`, wait until the claim has no owner references before such a deletion.
 
 **Writes the API refuses**, like a claim of size 0, a Pod whose requests exceed its limits, an annotation key that is not valid, or a
 ResourceQuota that is used up, fail the server with the explanation of the API, for example `PodRefused`.
@@ -126,7 +182,7 @@ bash build/manifest.sh                             # regenerates deploy/chroma-o
 ```
 
 The end-to-end tests run against a k3d cluster. Every command gets the kubeconfig and the context of the test cluster explicitly,
-and the current context of the machine is never used:
+and the current context of the machine is never used. The scripts and the tests refuse any context that is not one of k3d (`k3d-*`):
 
 ```
 k3d cluster create chroma-op --kubeconfig-switch-context=false

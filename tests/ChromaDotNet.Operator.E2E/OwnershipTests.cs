@@ -13,6 +13,7 @@ namespace ChromaDotNet.Operator.E2E;
 public class OwnershipTests
 {
 	private const string Image159 = "docker.io/chromadb/chroma:1.5.9";
+	private const string Finalizer = "chroma.chromadotnet.org/claimfinalizer";
 
 	private TestCluster _cluster = null!;
 
@@ -89,8 +90,64 @@ public class OwnershipTests
 		await WaitClaimOwnersAsync(owners => owners.Count == 0, "not owned with Retain");
 
 		await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("policy", _cluster.Namespace);
-		await Task.Delay(TimeSpan.FromSeconds(10));
-		Assert.That(await _cluster.Client.GetAsync<V1PersistentVolumeClaim>("policy-1", _cluster.Namespace), Is.Not.Null, "Retain keeps the claim");
+		await _cluster.AssertClaimKeptAsync("policy");
+	}
+
+	// The operator is stopped while the server goes from Delete to Retain and is deleted: no pass removed the owner of the claim. The
+	// server waits for the operator, which removes it from the owners of the claim before it goes: the claim stays.
+	[Test]
+	public async Task PolicyChangedWhileTheOperatorIsStoppedKeepsTheClaim()
+	{
+		var server = TestCluster.NewServer("late", Image159);
+		server.Spec.PvcDeletionPolicy = "Delete";
+		await _cluster.CreateAsync(server);
+		var ready = await _cluster.WaitReadyAsync("late", Image159);
+		Assert.That((await LateClaimAsync())!.Metadata.OwnerReferences.Single().Uid, Is.EqualTo(ready.Uid()));
+		try
+		{
+			await _cluster.ScaleOperatorAsync(0);
+			await _cluster.UpdateAsync("late", s => s.Spec.PvcDeletionPolicy = "Retain");
+			await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("late", _cluster.Namespace);
+			// Without the finalizer the server is gone at once, and the garbage collector deletes the claim it still owns.
+			var waiting = await _cluster.GetAsync("late");
+			Assert.That(waiting?.Metadata.DeletionTimestamp, Is.Not.Null, "the server waits for the operator");
+			Assert.That((await LateClaimAsync())!.Metadata.OwnerReferences, Has.Count.EqualTo(1), "nobody removed the owner yet");
+		}
+		finally
+		{
+			await _cluster.ScaleOperatorAsync(1);
+		}
+		await _cluster.WaitGoneAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("late");
+		await _cluster.AssertClaimKeptAsync("late");
+	}
+
+	// The finalizer is on a server only while it owns its claim. With the operator stopped, a server with Retain is deleted at once and
+	// its claim stays; one with Delete waits for the operator, then goes with its claim.
+	[Test]
+	public async Task OnlyAServerThatOwnsItsClaimWaitsForTheOperator()
+	{
+		var keep = TestCluster.NewServer("keep", Image159);
+		var drop = TestCluster.NewServer("drop", Image159);
+		drop.Spec.PvcDeletionPolicy = "Delete";
+		await _cluster.CreateAsync(keep);
+		await _cluster.CreateAsync(drop);
+		Assert.That((await _cluster.WaitReadyAsync("keep", Image159)).Metadata.Finalizers ?? [], Is.Empty, "Retain: no finalizer");
+		Assert.That((await _cluster.WaitReadyAsync("drop", Image159)).Metadata.Finalizers, Does.Contain(Finalizer), "Delete: the finalizer");
+		try
+		{
+			await _cluster.ScaleOperatorAsync(0);
+			await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("keep", _cluster.Namespace);
+			await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("drop", _cluster.Namespace);
+			Assert.That(await _cluster.GetAsync("keep"), Is.Null, "Retain: deleted at once");
+			await _cluster.AssertClaimKeptAsync("keep");
+			Assert.That((await _cluster.GetAsync("drop"))?.Metadata.DeletionTimestamp, Is.Not.Null, "Delete: waits for the operator");
+		}
+		finally
+		{
+			await _cluster.ScaleOperatorAsync(1);
+		}
+		await _cluster.WaitGoneAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("drop");
+		await _cluster.WaitGoneAsync<V1PersistentVolumeClaim>("drop-1");
 	}
 
 	// A Service of someone else blocks the server; a change of pvcDeletionPolicy still reaches the claim, so that deleting the server
@@ -119,8 +176,13 @@ public class OwnershipTests
 			await Task.Delay(500);
 		}
 		await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("blocked", _cluster.Namespace);
-		await Task.Delay(TimeSpan.FromSeconds(10));
-		Assert.That(await _cluster.Client.GetAsync<V1PersistentVolumeClaim>("blocked-1", _cluster.Namespace), Is.Not.Null);
+		await _cluster.WaitGoneAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("blocked");
+		// The Service of someone else stays: only the Pod and the ConfigMap were the server's.
+		await _cluster.WaitGoneAsync<V1Pod>("blocked-1");
+		await _cluster.WaitGoneAsync<V1ConfigMap>("blocked-config");
+		var claim = await _cluster.Client.GetAsync<V1PersistentVolumeClaim>("blocked-1", _cluster.Namespace);
+		Assert.That(claim?.Metadata.DeletionTimestamp, Is.Null);
+		Assert.That(claim!.Metadata.OwnerReferences ?? [], Is.Empty);
 	}
 
 	// A Service update the API refuses, here an annotation key that is not a qualified name: the server fails with the reason, and a
@@ -456,6 +518,8 @@ public class OwnershipTests
 		Assert.That(annotations["example.com/a"], Is.EqualTo("3"));
 		Assert.That(annotations["other.example.com/kept"], Is.EqualTo("yes"));
 	}
+
+	private Task<V1PersistentVolumeClaim?> LateClaimAsync() => _cluster.Client.GetAsync<V1PersistentVolumeClaim>("late-1", _cluster.Namespace);
 
 	private async Task<List<V1OwnerReference>> ClaimOwnersAsync() =>
 		(await _cluster.Client.GetAsync<V1PersistentVolumeClaim>("policy-1", _cluster.Namespace))!.Metadata.OwnerReferences?.ToList() ?? [];
