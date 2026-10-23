@@ -1,0 +1,236 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: chromaservers.chroma.chromadotnet.org
+spec:
+  conversion:
+    strategy: None
+  group: chroma.chromadotnet.org
+  names:
+    kind: ChromaServer
+    listKind: ChromaServerList
+    plural: chromaservers
+    shortNames:
+    - chroma
+    singular: chromaserver
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      priority: 0
+      type: string
+    - jsonPath: .status.image
+      name: Image
+      priority: 0
+      type: string
+    - jsonPath: .status.dataVersion
+      name: Data
+      priority: 0
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      priority: 0
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          spec:
+            properties:
+              config:
+                description: The configuration of Chroma, written into the ConfigMap mounted at /config.yaml. A change restarts the Pod.
+                nullable: true
+                properties:
+                  corsAllowOrigins:
+                    description: cors_allow_origins of Chroma; ["*"] allows any origin.
+                    items:
+                      type: string
+                    nullable: true
+                    type: array
+                  maxPayloadSizeBytes:
+                    description: 'max_payload_size_bytes of Chroma: the largest request body. 40 MiB in Chroma by default.'
+                    exclusiveMinimum: false
+                    format: int64
+                    minimum: 1.0
+                    nullable: true
+                    type: integer
+                type: object
+              image:
+                description: 'The image of Chroma with an exact version tag, like docker.io/chromadb/chroma:1.5.9, optionally followed by @sha256:<digest>. latest and development tags are refused. Empty: the default image of the operator, written here at the first pass. It must be in the repositories the operator allows.'
+                nullable: true
+                pattern: ^\S+:[0-9]+\.[0-9]+\.[0-9]+(@sha256:[0-9a-f]{64})?$
+                type: string
+              imagePullPolicy:
+                description: 'The pull policy of the image: Always, IfNotPresent or Never. IfNotPresent by default.'
+                nullable: true
+                pattern: ^(Always|IfNotPresent|Never)$
+                type: string
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: Node selector of the Pod.
+                nullable: true
+                type: object
+              priorityClassName:
+                description: Priority class of the Pod.
+                nullable: true
+                type: string
+              pvcDeletionPolicy:
+                description: Retain (default) keeps the PersistentVolumeClaim when the ChromaServer is deleted; Delete deletes it with the data.
+                nullable: true
+                pattern: ^(Retain|Delete)$
+                type: string
+              resources:
+                description: Requests and limits of the Chroma container.
+                nullable: true
+                properties:
+                  claims:
+                    items:
+                      properties:
+                        name:
+                          type: string
+                        request:
+                          type: string
+                      type: object
+                    type: array
+                  limits:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  requests:
+                    additionalProperties:
+                      type: string
+                    type: object
+                type: object
+              service:
+                description: The Service in front of the Pod.
+                nullable: true
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations of the Service.
+                    nullable: true
+                    type: object
+                  type:
+                    description: ClusterIP (default), NodePort or LoadBalancer.
+                    nullable: true
+                    pattern: ^(ClusterIP|NodePort|LoadBalancer)$
+                    type: string
+                type: object
+              storage:
+                description: The PersistentVolumeClaim of /data.
+                properties:
+                  size:
+                    description: The size of the volume, like 10Gi.
+                    pattern: ^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$
+                    type: string
+                  storageClass:
+                    description: The StorageClass; empty for the default of the cluster.
+                    nullable: true
+                    type: string
+                required:
+                - size
+                type: object
+              tolerations:
+                description: Tolerations of the Pod.
+                items:
+                  properties:
+                    effect:
+                      type: string
+                    key:
+                      type: string
+                    operator:
+                      type: string
+                    tolerationSeconds:
+                      format: int64
+                      nullable: true
+                      type: integer
+                    value:
+                      type: string
+                  type: object
+                nullable: true
+                type: array
+            required:
+            - storage
+            type: object
+          status:
+            properties:
+              conditions:
+                description: Ready and UpgradeBlocked.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      nullable: true
+                      type: integer
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
+              dataVersion:
+                description: The highest version of Chroma that has opened the data. An image older than this is refused, since Chroma does not open data migrated by a newer version.
+                nullable: true
+                type: string
+              dataVersionDeclaredPod:
+                description: 'The Pod and the image without a version that the last declaration covered, as <uid>/<image>: seen again while it stops, it is not a new incident.'
+                nullable: true
+                type: string
+              dataVersionUnknown:
+                description: 'True when an image without a version ran on the data, so that its version is not known: no Pod is replaced or started until the annotation chroma.chromadotnet.org/declared-data-version says it.'
+                nullable: true
+                type: boolean
+              dataVersionUnknownIncident:
+                description: 'The code of the incident that made the data version unknown: the declaration names it, as <x.y.z>/<code>, so that it resolves this incident only.'
+                nullable: true
+                type: string
+              endpoint:
+                description: The address of the Service, like http://demo-rw.rag.svc:8000.
+                nullable: true
+                type: string
+              image:
+                description: The image of the running Pod, once it is ready.
+                nullable: true
+                type: string
+              observedGeneration:
+                description: The generation of the spec this status describes.
+                format: int64
+                nullable: true
+                type: integer
+              phase:
+                description: Creating, Ready, Updating or Failed.
+                nullable: true
+                type: string
+              pod:
+                description: The name of the Pod.
+                nullable: true
+                type: string
+              pvc:
+                description: The name of the PersistentVolumeClaim.
+                nullable: true
+                type: string
+              recoveryImage:
+                description: 'The newest image of a Pod of the server that is allowed and not older than the data: the image a server whose spec is refused starts again with.'
+                nullable: true
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: "The name of a ChromaServer is a DNS label of at most 60 characters: lowercase letters, digits and '-', starting with a letter and ending with a letter or a digit."
+          rule: self.metadata.name.size() <= 60 && self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$')
+    served: true
+    storage: true
+    subresources:
+      status: {}

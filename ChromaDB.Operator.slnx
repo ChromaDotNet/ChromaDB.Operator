@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ChromaDotNet.Operator/ChromaDotNet.Operator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ChromaDotNet.Operator.E2E/ChromaDotNet.Operator.E2E.csproj" />
+    <Project Path="tests/ChromaDotNet.Operator.Tests/ChromaDotNet.Operator.Tests.csproj" />
+  </Folder>
+</Solution>

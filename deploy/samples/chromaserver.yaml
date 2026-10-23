@@ -1,0 +1,11 @@
+apiVersion: chroma.chromadotnet.org/v1alpha1
+kind: ChromaServer
+metadata:
+  name: demo
+spec:
+  image: docker.io/chromadb/chroma:1.5.9
+  storage:
+    size: 1Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
