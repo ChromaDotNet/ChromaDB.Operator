@@ -57,6 +57,11 @@ The operator runs as the ServiceAccount `chroma-operator`. Its ClusterRole has o
 
 The operator never deletes a claim.
 
+One operator works at a time. The Deployment replaces its Pod with the strategy `Recreate`. The operator holds the Lease
+`chroma-operator-leader` in its namespace, through a Role limited to it: with more replicas, or with a Pod left on a lost node,
+another one waits. When the leader goes, another replica takes over once the Lease expires (15 seconds). The liveness and readiness
+probes call `/healthz` on port 8080.
+
 ## Uninstall
 
 `kubectl delete -f deploy/chroma-operator.yaml` also deletes the CustomResourceDefinition, and with it every ChromaServer of the
@@ -118,7 +123,14 @@ Clients connect to `http://demo-rw.<namespace>.svc:8000`, which is also in `stat
 
 The status has `phase`, which is `Creating`, `Ready`, `Updating` or `Failed`, and the conditions `Ready` and `UpgradeBlocked`, whose
 `reason` says why: for example `PodReady`, `NameConflict`, `ServiceRefused`, `PodRefused`, `CrashLoopBackOff`, `Downgrade`,
-`ImageNotAllowed` or `DataVersionUnknown`. It also has:
+`ImageNotAllowed` or `DataVersionUnknown`.
+
+The condition `Reconciled` appears after a pass that failed for another reason than the server, with the reason in its message:
+- `ApiError`: an answer of the API like 500;
+- `Error`: no answer at all, like a network failure.
+
+The operator tries again after 10 seconds, then 20 and 40, up to 5 minutes, and sets `Reconciled` back to `True` once a pass goes
+through. The status also has:
 
 | Field | |
 |---|---|
@@ -170,6 +182,13 @@ create for this ChromaServer: the server fails with the reason `NameConflict`. A
 it, or if it has the labels of a claim retained by a ChromaServer of this name. To give the data of another claim to a ChromaServer,
 label it with `chroma.chromadotnet.org/server=<name>` and `app.kubernetes.io/managed-by=chroma-operator`.
 
+**Webhooks that rewrite the image.** A mutating webhook can rewrite the image of the Pod at its creation, like a registry mirror or a
+policy that adds a digest. The operator keeps the image the API admitted on the Pod, in the annotation
+`chroma.chromadotnet.org/admitted-image`. A Pod that runs that image is the one the operator created, and it stays. An image changed
+after the creation, by hand, is replaced. `status.image` is then the admitted image. A rewrite must keep the version tag:
+`chromadb/chroma:1.5.9@sha256:...` keeps the version of the data known. `chromadb/chroma@sha256:...` alone has no version, so it makes
+the version of the data unknown, as an image like `latest` does (see above).
+
 **Names.** The name of a ChromaServer is a DNS label of at most 60 characters, so that its Service `<name>-rw` is a valid DNS label.
 
 ## Development
@@ -182,7 +201,8 @@ bash build/manifest.sh                             # regenerates deploy/chroma-o
 ```
 
 The end-to-end tests run against a k3d cluster. Every command gets the kubeconfig and the context of the test cluster explicitly,
-and the current context of the machine is never used. The scripts and the tests refuse any context that is not one of k3d (`k3d-*`):
+and the current context of the machine is never used. The scripts and the tests refuse any context that is not one of k3d (`k3d-*`).
+`build/e2e.sh` installs [Kyverno](https://kyverno.io/) 1.15 on the cluster once, for the test of a mutating webhook:
 
 ```
 k3d cluster create chroma-op --kubeconfig-switch-context=false

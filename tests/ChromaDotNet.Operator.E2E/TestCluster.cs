@@ -19,6 +19,8 @@ internal sealed class TestCluster : IDisposable
 {
 	public static readonly TimeSpan ReadyTimeout = TimeSpan.FromMinutes(3);
 
+	public const string OperatorNamespace = "chroma-operator-system";
+
 	/// <summary>The addresses k3d gives the API server of a cluster on this machine.</summary>
 	private static readonly HashSet<string> LocalHosts = ["0.0.0.0", "127.0.0.1", "localhost", "host.docker.internal", "[::1]"];
 
@@ -194,12 +196,49 @@ internal sealed class TestCluster : IDisposable
 	}
 
 	/// <summary>
+	/// The holder of the Lease of the operator, once it is one of its running Pods other than <paramref name="except"/>: the identity of a
+	/// holder is the name of its Pod.
+	/// </summary>
+	public async Task<string> WaitLeaseHolderAsync(string? except)
+	{
+		var watch = Stopwatch.StartNew();
+		string? holder = null;
+		while (watch.Elapsed < TimeSpan.FromMinutes(2))
+		{
+			holder = (await Api.CoordinationV1.ReadNamespacedLeaseAsync("chroma-operator-leader", OperatorNamespace)).Spec.HolderIdentity;
+			var pods = (await Api.CoreV1.ListNamespacedPodAsync(OperatorNamespace, labelSelector: "operator=chroma-operator")).Items;
+			if (holder is not null && holder != except && pods.Any(p => p.Name() == holder && p.Metadata.DeletionTimestamp is null && p.Status?.Phase == "Running"))
+			{
+				TestContext.Out.WriteLine($"operator: {holder} holds the Lease after {watch.Elapsed.TotalSeconds:0.0} s");
+				return holder;
+			}
+			await Task.Delay(500);
+		}
+		Assert.Fail($"no running operator other than {except} holds the Lease; holder {holder}");
+		return null!;
+	}
+
+	/// <summary>The running Pods of the operator whose log has the text.</summary>
+	public async Task<List<string>> OperatorPodsThatLoggedAsync(string text)
+	{
+		var found = new List<string>();
+		foreach (var pod in (await Api.CoreV1.ListNamespacedPodAsync(OperatorNamespace, labelSelector: "operator=chroma-operator")).Items)
+		{
+			using var stream = await Api.CoreV1.ReadNamespacedPodLogAsync(pod.Name(), OperatorNamespace);
+			using var reader = new StreamReader(stream);
+			if ((await reader.ReadToEndAsync()).Contains(text, StringComparison.Ordinal))
+				found.Add(pod.Name());
+		}
+		return found;
+	}
+
+	/// <summary>
 	/// Scales the Deployment of the operator and waits until that many Pods of it are ready, or none is left. The tests run one at a time:
 	/// while the operator is stopped, no other test needs it.
 	/// </summary>
 	public async Task ScaleOperatorAsync(int replicas)
 	{
-		const string ns = "chroma-operator-system", deployment = "chroma-operator-operator";
+		const string ns = OperatorNamespace, deployment = "chroma-operator-operator";
 		var patch = new V1Patch($"{{\"spec\":{{\"replicas\":{replicas}}}}}", V1Patch.PatchType.MergePatch);
 		await Api.AppsV1.PatchNamespacedDeploymentScaleAsync(patch, deployment, ns);
 		var watch = Stopwatch.StartNew();

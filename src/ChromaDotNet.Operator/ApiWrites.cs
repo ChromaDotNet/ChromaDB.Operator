@@ -9,7 +9,7 @@ namespace ChromaDotNet.Operator;
 /// <summary>The writes of the controller and of the finalizer that need the same handling of refusals and conflicts.</summary>
 internal static class ApiWrites
 {
-	public const int ClaimAttempts = 5;
+	public const int Attempts = 5;
 
 	/// <summary>
 	/// A write the API refuses: invalid (422), like an annotation with a key that is not a qualified name, or forbidden (403), like a
@@ -26,7 +26,7 @@ internal static class ApiWrites
 	public static async Task<(V1PersistentVolumeClaim Claim, string? Conflict, string Reason)> UpdateClaimAsync(IKubernetesClient client,
 		V1Alpha1ChromaServer server, V1PersistentVolumeClaim claim, Func<V1PersistentVolumeClaim, bool> change, CancellationToken cancellationToken)
 	{
-		for (var attempt = 1; attempt <= ClaimAttempts; attempt++)
+		for (var attempt = 1; attempt <= Attempts; attempt++)
 		{
 			if (attempt > 1)
 			{
@@ -49,6 +49,6 @@ internal static class ApiWrites
 				return (claim, $"The API refused the update of the PersistentVolumeClaim {claim.Name()}: {e.Response.Content}", "PersistentVolumeClaimRefused");
 			}
 		}
-		return (claim, $"The PersistentVolumeClaim {claim.Name()} kept changing while the operator wrote it ({ClaimAttempts} attempts).", "PersistentVolumeClaimConflict");
+		return (claim, $"The PersistentVolumeClaim {claim.Name()} kept changing while the operator wrote it ({Attempts} attempts).", "PersistentVolumeClaimConflict");
 	}
 }

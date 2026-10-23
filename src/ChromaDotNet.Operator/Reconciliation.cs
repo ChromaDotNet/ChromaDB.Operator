@@ -135,8 +135,11 @@ internal static class Reconciliation
 			return new Outcome(PodAction.Wait, null, status, BusyRequeue);
 		}
 		var current = pod.Metadata.Annotations?.TryGetValue(Labels.PodSpecHash, out var hash) == true ? hash : null;
-		// The annotation says what the operator created; the image of the container says what runs, also after an edit by hand.
-		if (current != desired.Metadata.Annotations[Labels.PodSpecHash] || running != image || pod.Status?.Phase is "Failed" or "Succeeded")
+		// The annotation says what the operator created; the image of the container says what runs, also after an edit by hand. A
+		// mutating webhook can rewrite the image at the creation (a mirror, a digest): the image the API admitted is that of the Pod
+		// the operator created, not an edit.
+		var admitted = pod.Metadata.Annotations?.TryGetValue(Labels.AdmittedImage, out var admittedImage) == true ? admittedImage : null;
+		if (current != desired.Metadata.Annotations[Labels.PodSpecHash] || (running != image && running != admitted) || pod.Status?.Phase is "Failed" or "Succeeded")
 		{
 			status.Phase = "Updating";
 			var reason = pod.Status?.Phase is "Failed" or "Succeeded" ? $"Pod {pod.Name()} ended ({pod.Status.Phase})." : $"Pod {pod.Name()} differs from the spec.";

@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using ChromaDotNet.Operator.Entities;
 using k8s;
+using k8s.LeaderElection;
 using k8s.Models;
 using KubeOps.Abstractions.Reconciliation.Queue;
 using KubeOps.KubernetesClient;
@@ -41,6 +42,22 @@ public class PodWatcherTests
 		Assert.That(watches, Is.EqualTo(2));
 		client.Received().WatchAsync<V1Pod>(Arg.Any<string?>(), Arg.Any<string?>(), "app.kubernetes.io/managed-by=chroma-operator", Arg.Any<string?>(),
 			Arg.Any<bool?>(), Arg.Any<CancellationToken>());
+	}
+
+	// With leader election, a replica that is not the leader does not watch the Pods: its queue takes nothing.
+	[Test]
+	[CancelAfter(15_000)]
+	public async Task ReplicaThatIsNotTheLeaderDoesNotWatch()
+	{
+		using var client = Substitute.For<IKubernetesClient>();
+		using var elector = new LeaderElector(new LeaderElectionConfig(Substitute.For<ILock>()));
+		EntityQueue<V1Alpha1ChromaServer> queue = (_, _, _, _, _, _) => Task.FromResult(true);
+		using var watcher = new PodWatcher(client, queue, NullLogger<PodWatcher>.Instance, elector);
+		await watcher.StartAsync(CancellationToken.None);
+		await Task.Delay(TimeSpan.FromSeconds(1));
+		await watcher.StopAsync(CancellationToken.None);
+		client.DidNotReceive().WatchAsync<V1Pod>(Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<bool?>(),
+			Arg.Any<CancellationToken>());
 	}
 
 	/// <summary>A watch that fails, as with a timeout, or that the API ends.</summary>

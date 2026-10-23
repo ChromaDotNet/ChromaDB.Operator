@@ -10,6 +10,8 @@
 		<GenerateOperatorResources>false</GenerateOperatorResources>
 	</PropertyGroup>
 	<ItemGroup>
+		<!-- ASP.NET Core for the endpoint of the probes of the Deployment. -->
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
 		<PackageReference Include="KubeOps.Operator" Version="$(KubeOpsVersion)" />
 		<PackageReference Include="KubeOps.Generator" Version="$(KubeOpsVersion)" PrivateAssets="all" />
 	</ItemGroup>
