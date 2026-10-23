@@ -39,6 +39,10 @@ internal static class Ownership
 			$"label it with {Labels.Server}={server.Name()} and app.kubernetes.io/managed-by={Labels.ManagedBy}; otherwise delete or rename it.";
 	}
 
+	/// <summary>Whether the server is among the owners of the claim, so that the garbage collector deletes the claim with it.</summary>
+	public static bool OwnsClaim(V1PersistentVolumeClaim? pvc, V1Alpha1ChromaServer server) =>
+		pvc?.Metadata.OwnerReferences?.Any(o => o.Uid == server.Uid()) == true;
+
 	/// <summary>
 	/// Makes the owner of the claim follow pvcDeletionPolicy: the ChromaServer as controller with Delete, so that the garbage collector
 	/// deletes the claim with it; no reference to it with Retain. Other references stay. True when the claim changed.
@@ -46,7 +50,7 @@ internal static class Ownership
 	public static bool ReconcileClaimOwner(V1PersistentVolumeClaim pvc, V1Alpha1ChromaServer server)
 	{
 		var references = pvc.Metadata.OwnerReferences ?? [];
-		var ours = references.Any(o => o.Uid == server.Uid());
+		var ours = OwnsClaim(pvc, server);
 		if (server.Spec.PvcDeletionPolicy == "Delete")
 		{
 			if (ours)

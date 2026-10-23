@@ -79,7 +79,7 @@ public class ControllerTests
 		Assert.That(_written?.DataVersion, Is.EqualTo("1.5.9"));
 		Assert.That(_written!.Conditions.Single(c => c.Type == "Ready").Reason, Is.EqualTo("PersistentVolumeClaimConflict"));
 		await _client.DidNotReceive().CreateAsync(Arg.Any<V1Pod>(), Arg.Any<CancellationToken>());
-		await _client.DidNotReceive().DeleteAsync(Arg.Any<V1Pod>(), Arg.Any<CancellationToken>());
+		Assert.That(PodDeletes(_client), Is.Zero);
 	}
 
 	// During the conflict another writer recorded 1.6.0 on the claim: the retry does not lower it to the 1.5.9 seen here, and the pass

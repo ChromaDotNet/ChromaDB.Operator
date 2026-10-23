@@ -1,9 +1,11 @@
 # The manifest of the operator: what `kubeops generate operator` writes into generated/ (CRD, RBAC, Deployment, Namespace), with the
-# security of the Deployment added here. build/manifest.sh renders it into deploy/chroma-operator.yaml, the single file to apply.
+# security of the Deployment and a ServiceAccount of its own added here. build/manifest.sh renders it into deploy/chroma-operator.yaml,
+# the single file to apply.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - generated
+  - service-account.yaml
 images:
   - name: ghcr.io/chromadotnet/chroma-operator
     newTag: dev
@@ -28,6 +30,9 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: IfNotPresent
+      - op: add
+        path: /spec/template/spec/serviceAccountName
+        value: chroma-operator
       # The image of a ChromaServer without spec.image, and the repositories a ChromaServer can use (comma separated, or *).
       - op: add
         path: /spec/template/spec/containers/0/env/-
@@ -35,3 +40,37 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value: {name: CHROMA_ALLOWED_IMAGES, value: "docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma"}
+  # The CLI binds the role to the ServiceAccount default of the namespace: the operator has one of its own.
+  - target:
+      kind: ClusterRoleBinding
+      name: operator-role-binding
+    patch: |-
+      - op: test
+        path: /subjects/0/name
+        value: default
+      - op: replace
+        path: /subjects/0/name
+        value: chroma-operator
+  # The CLI always adds events and leases: the operator publishes no events and runs without leader election. It also grants get and
+  # patch on the status of ChromaServers, which the operator writes with update only. The test operations make the build fail if the
+  # generated rules move.
+  - target:
+      kind: ClusterRole
+      name: operator-role
+    patch: |-
+      - op: test
+        path: /rules/6/resources
+        value: [leases]
+      - op: remove
+        path: /rules/6
+      - op: test
+        path: /rules/1/resources
+        value: [events]
+      - op: remove
+        path: /rules/1
+      - op: test
+        path: /rules/4/resources
+        value: [chromaservers/status]
+      - op: replace
+        path: /rules/4/verbs
+        value: [update]

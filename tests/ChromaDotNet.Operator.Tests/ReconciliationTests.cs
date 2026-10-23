@@ -32,6 +32,8 @@ public class ReconciliationTests
 		Assert.That(outcome.RequeueAfter, Is.EqualTo(Reconciliation.SteadyRequeue));
 	}
 
+	// The Pod of 1.5.3 is deleted first, with the data still at 1.5.3; the next pass, without a Pod, raises the data version to 1.5.9
+	// before it creates the new one.
 	[Test]
 	public void NewImageReplacesThePod()
 	{
@@ -39,6 +41,14 @@ public class ReconciliationTests
 		var outcome = Reconciliation.Decide(server, RunningPod(server, Image153), null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.Delete));
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Updating"));
+		Assert.That(outcome.DesiredPod!.Spec.Containers[0].Image, Is.EqualTo(Image159), "the replacement the API checks");
+		Assert.That(outcome.Status.DataVersion, Is.EqualTo("1.5.3"), "1.5.9 has not run yet");
+
+		server.Status = outcome.Status;
+		var next = Reconciliation.Decide(server, null, null, Now.AddSeconds(2), Defaults);
+		Assert.That(next.Action, Is.EqualTo(PodAction.Create));
+		Assert.That(next.DesiredPod!.Spec.Containers[0].Image, Is.EqualTo(Image159));
+		Assert.That(next.Status.DataVersion, Is.EqualTo("1.5.9"));
 	}
 
 	[Test]
@@ -103,7 +113,8 @@ public class ReconciliationTests
 		Assert.That(outcome.DesiredPod!.Spec.Containers[0].Image, Is.EqualTo(Image159));
 	}
 
-	// A ChromaServer created again on a claim kept with Retain: the data version comes from the claim.
+	// A ChromaServer created again on a claim kept with Retain: the data version comes from the claim. The new server has seen no image
+	// it could start instead, so it starts nothing.
 	[Test]
 	public void DataVersionOfARetainedClaim()
 	{
@@ -112,6 +123,8 @@ public class ReconciliationTests
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Failed"));
 		Assert.That(outcome.Status.DataVersion, Is.EqualTo("1.5.9"));
 		Assert.That(Condition(outcome, "UpgradeBlocked").Status, Is.EqualTo("True"));
+		Assert.That(Condition(outcome, "UpgradeBlocked").Reason, Is.EqualTo("Downgrade"));
+		Assert.That(Condition(outcome, "Ready").Reason, Is.EqualTo("NoImage"));
 	}
 
 	// The data version grows as soon as the container has started, ready or not: its migrations may already be applied.
@@ -154,7 +167,7 @@ public class ReconciliationTests
 		Assert.That(Condition(outcome, "Ready").Reason, Is.EqualTo(reason));
 	}
 
-	// The operator allows the official repositories only, unless its administrator says otherwise: the running Pod stays.
+	// The operator allows the repositories of Chroma only, unless its administrator says otherwise: the running Pod stays.
 	[Test]
 	public void ImageOutsideTheAllowedRepositoriesIsRefused()
 	{
@@ -183,13 +196,21 @@ public class ReconciliationTests
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.Create));
 	}
 
+	// The running Pod stays, and what it shows is still recorded.
 	[Test]
 	public void InvalidImageFailsWithoutTouchingThePod()
 	{
-		var outcome = Reconciliation.Decide(Server("chromadb/chroma:latest"), null, null, Now, Defaults);
+		var server = Server("chromadb/chroma:latest", dataVersion: "1.5.3", runningImage: Image153);
+		var outcome = Reconciliation.Decide(server, RunningPod(server, Image159), null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
+		Assert.That(outcome.DesiredPod, Is.Null);
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Failed"));
 		Assert.That(Condition(outcome, "Ready").Reason, Is.EqualTo("InvalidImage"));
+		Assert.That(outcome.Status.DataVersion, Is.EqualTo("1.5.9"));
+		Assert.That(outcome.Status.RecoveryImage, Is.EqualTo(Image159));
+
+		var withoutPod = Reconciliation.Decide(Server("chromadb/chroma:latest"), null, null, Now, Defaults);
+		Assert.That(withoutPod.Action, Is.EqualTo(PodAction.None), "nothing is created either");
 	}
 
 	[Test]

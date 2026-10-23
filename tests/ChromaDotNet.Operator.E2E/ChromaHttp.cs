@@ -10,7 +10,8 @@ namespace ChromaDotNet.Operator.E2E;
 internal sealed class ChromaHttp(Uri uri) : IDisposable
 {
 	private const string Base = "api/v2/tenants/default_tenant/databases/default_database/";
-	private readonly HttpClient _http = new() { BaseAddress = uri, Timeout = TimeSpan.FromSeconds(30) };
+	// The first adds on a Chroma 1.5.3 just started took up to 33 s for 1,500 records on k3d, the next ones under a second.
+	private readonly HttpClient _http = new() { BaseAddress = uri, Timeout = TimeSpan.FromMinutes(2) };
 
 	public async Task<bool> AnswersAsync()
 	{

@@ -19,6 +19,9 @@ internal sealed class TestCluster : IDisposable
 {
 	public static readonly TimeSpan ReadyTimeout = TimeSpan.FromMinutes(3);
 
+	/// <summary>The addresses k3d gives the API server of a cluster on this machine.</summary>
+	private static readonly HashSet<string> LocalHosts = ["0.0.0.0", "127.0.0.1", "localhost", "host.docker.internal", "[::1]"];
+
 	private readonly string _kubeconfig;
 	private readonly string _context;
 
@@ -44,9 +47,40 @@ internal sealed class TestCluster : IDisposable
 		var context = Environment.GetEnvironmentVariable("CHROMA_OPERATOR_CONTEXT");
 		if (string.IsNullOrEmpty(kubeconfig) || string.IsNullOrEmpty(context))
 			Assert.Ignore("CHROMA_OPERATOR_KUBECONFIG and CHROMA_OPERATOR_CONTEXT choose the test cluster: build/e2e.sh sets them.");
+		// The tests create and delete namespaces: only on a local k3d cluster, whatever the variables say. A context can be renamed, and a
+		// local address can be a tunnel to another cluster: the API server must be on this machine, on the port Docker publishes for the
+		// load balancer of that k3d cluster.
+		if (!context!.StartsWith("k3d-", StringComparison.Ordinal))
+			Assert.Fail($"CHROMA_OPERATOR_CONTEXT is {context}: the tests run only on the context of a k3d cluster (k3d-*).");
 		var cluster = new TestCluster(kubeconfig!, context!);
+		var host = cluster.Api.BaseUri.Host;
+		if (!LocalHosts.Contains(host))
+		{
+			cluster.Dispose();
+			Assert.Fail($"The API server of {context} is on {host}: the tests run only on a cluster on this machine.");
+		}
+		var name = context["k3d-".Length..];
+		if (!PublishedPorts(name).Contains(cluster.Api.BaseUri.Port))
+		{
+			cluster.Dispose();
+			Assert.Fail($"{cluster.Api.BaseUri} is not the API of the k3d cluster {name} (docker port k3d-{name}-serverlb 6443/tcp).");
+		}
 		await cluster.Api.CoreV1.CreateNamespaceAsync(new V1Namespace { Metadata = new V1ObjectMeta { Name = cluster.Namespace } });
 		return cluster;
+	}
+
+	/// <summary>The ports Docker publishes for the API of a k3d cluster, on its load balancer; none when there is no such cluster.</summary>
+	private static List<int> PublishedPorts(string cluster)
+	{
+		var start = new ProcessStartInfo("docker") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+		foreach (var argument in new[] { "port", $"k3d-{cluster}-serverlb", "6443/tcp" })
+			start.ArgumentList.Add(argument);
+		using var process = Process.Start(start)!;
+		var output = process.StandardOutput.ReadToEnd();
+		process.WaitForExit();
+		return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+			.Select(line => int.TryParse(line[(line.LastIndexOf(':') + 1)..], out var port) ? port : -1)
+			.ToList();
 	}
 
 	public void Dispose()
@@ -104,7 +138,10 @@ internal sealed class TestCluster : IDisposable
 		}
 	}
 
-	/// <summary>Waits until the ChromaServer satisfies the condition, and returns it; fails with its status after the timeout.</summary>
+	/// <summary>
+	/// Waits until the ChromaServer satisfies the condition, and returns it; fails after the timeout with its status, the status of its
+	/// Pod, and the events of the namespace, so that a Pod that does not start can be told from an operator that does not act.
+	/// </summary>
 	public async Task<V1Alpha1ChromaServer> WaitAsync(string name, Func<V1Alpha1ChromaServer, bool> condition, TimeSpan? timeout = null, string? what = null)
 	{
 		var watch = Stopwatch.StartNew();
@@ -119,8 +156,62 @@ internal sealed class TestCluster : IDisposable
 			}
 			await Task.Delay(500);
 		}
-		Assert.Fail($"{name}: {what ?? "condition"} not met in {watch.Elapsed.TotalSeconds:0} s; status {KubernetesJson.Serialize(server?.Status)}");
+		var pod = await PodAsync(name + "-1");
+		var events = (await Api.CoreV1.ListNamespacedEventAsync(Namespace)).Items
+			.OrderBy(e => e.LastTimestamp ?? e.EventTime)
+			.Select(e => $"{e.InvolvedObject.Kind}/{e.InvolvedObject.Name} {e.Reason}: {e.Message}")
+			.TakeLast(15);
+		Assert.Fail($"{name}: {what ?? "condition"} not met in {watch.Elapsed.TotalSeconds:0} s; status {KubernetesJson.Serialize(server?.Status)}; " +
+			$"Pod {KubernetesJson.Serialize(pod?.Status)}; events:\n{string.Join('\n', events)}");
 		return null!;
+	}
+
+	/// <summary>Waits until the object is gone; fails after two minutes.</summary>
+	public async Task WaitGoneAsync<T>(string name) where T : class, IKubernetesObject<V1ObjectMeta>
+	{
+		var watch = Stopwatch.StartNew();
+		while (await Client.GetAsync<T>(name, Namespace) is not null)
+		{
+			if (watch.Elapsed > TimeSpan.FromMinutes(2))
+				Assert.Fail($"{typeof(T).Name} {name} still there after {watch.Elapsed.TotalSeconds:0} s");
+			await Task.Delay(500);
+		}
+	}
+
+	/// <summary>
+	/// After the deletion of a ChromaServer: once the garbage collector has deleted the objects it owned, the claim is still there, not
+	/// being deleted, and without owners. A claim the garbage collector deletes is marked for deletion before the Pod that uses it is gone.
+	/// </summary>
+	public async Task AssertClaimKeptAsync(string server)
+	{
+		await WaitGoneAsync<V1Pod>(server + "-1");
+		await WaitGoneAsync<V1Service>(server + "-rw");
+		await WaitGoneAsync<V1ConfigMap>(server + "-config");
+		var claim = await Client.GetAsync<V1PersistentVolumeClaim>(server + "-1", Namespace);
+		Assert.That(claim, Is.Not.Null, "the claim is kept");
+		Assert.That(claim!.Metadata.DeletionTimestamp, Is.Null, "the claim is not being deleted");
+		Assert.That(claim.Metadata.OwnerReferences ?? [], Is.Empty, "the claim has no owner");
+	}
+
+	/// <summary>
+	/// Scales the Deployment of the operator and waits until that many Pods of it are ready, or none is left. The tests run one at a time:
+	/// while the operator is stopped, no other test needs it.
+	/// </summary>
+	public async Task ScaleOperatorAsync(int replicas)
+	{
+		const string ns = "chroma-operator-system", deployment = "chroma-operator-operator";
+		var patch = new V1Patch($"{{\"spec\":{{\"replicas\":{replicas}}}}}", V1Patch.PatchType.MergePatch);
+		await Api.AppsV1.PatchNamespacedDeploymentScaleAsync(patch, deployment, ns);
+		var watch = Stopwatch.StartNew();
+		while (watch.Elapsed < ReadyTimeout)
+		{
+			var pods = (await Api.CoreV1.ListNamespacedPodAsync(ns, labelSelector: "operator=chroma-operator")).Items;
+			var ready = pods.Count(p => p.Metadata.DeletionTimestamp is null && Reconciliation.IsReady(p));
+			if (replicas == 0 ? pods.Count == 0 : ready == replicas && pods.Count == replicas)
+				return;
+			await Task.Delay(500);
+		}
+		Assert.Fail($"the operator did not reach {replicas} Pods");
 	}
 
 	public Task<V1Alpha1ChromaServer> WaitReadyAsync(string name, string image) =>

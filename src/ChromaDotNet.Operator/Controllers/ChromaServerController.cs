@@ -18,9 +18,15 @@ namespace ChromaDotNet.Operator.Controllers;
 /// managed directly, as CloudNativePG does, without a StatefulSet. Objects with the same names that belong to someone else are never
 /// changed: the server fails with the reason (<see cref="Ownership"/>).
 /// </summary>
-[EntityRbac(typeof(V1Alpha1ChromaServer), Verbs = RbacVerb.All)]
-[EntityRbac(typeof(V1Pod), typeof(V1PersistentVolumeClaim), typeof(V1Service), typeof(V1ConfigMap),
-	Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Watch | RbacVerb.Create | RbacVerb.Update | RbacVerb.Patch | RbacVerb.Delete)]
+// Only what the operator does. On the ChromaServers: the watch, the default image and the finalizer (update), and the status. The
+// owner references of its objects block the deletion of the server (blockOwnerDeletion): with OwnerReferencesPermissionEnforcement,
+// as on OpenShift, setting them needs update on chromaservers/finalizers. On the core types GenericRbac, since EntityRbac would add
+// their status too: the Pods are watched, recreated and deleted, the other objects read, created and updated.
+[EntityRbac(typeof(V1Alpha1ChromaServer), Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Watch | RbacVerb.Update)]
+[GenericRbac(Groups = [Labels.Group], Resources = ["chromaservers/finalizers"], Verbs = RbacVerb.Update)]
+[GenericRbac(Groups = [""], Resources = ["pods"],
+	Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Watch | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
+[GenericRbac(Groups = [""], Resources = ["configmaps", "persistentvolumeclaims", "services"], Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
 public sealed class ChromaServerController(IKubernetesClient client, OperatorOptions options, ILogger<ChromaServerController> logger)
 	: IEntityController<V1Alpha1ChromaServer>
 {
@@ -46,12 +52,20 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 			}
 
 			// The owner of an existing claim of this server follows pvcDeletionPolicy first, before any other write that could fail or
-			// conflict: otherwise a change to Retain would not be applied, and deleting the server would delete the data.
+			// conflict: otherwise a change to Retain would not be applied, and deleting the server would delete the data. The finalizer of
+			// the claim is on the server while the server owns the claim: added before the owner reference, removed after it, so that a
+			// change to Retain followed by a deletion is still applied, and a server that owns nothing is deleted at once.
 			var now = DateTime.UtcNow;
 			var (pvc, conflict) = await ExistingPvcAsync(server, cancellationToken);
 			var reason = "NameConflict";
+			var delete = server.Spec.PvcDeletionPolicy == "Delete";
+			if (delete && conflict is null && !HasFinalizer(server))
+				server = await SetFinalizerAsync(server, true, cancellationToken);
 			if (pvc is not null)
-				(pvc, conflict, reason) = await UpdateClaimAsync(server, pvc, c => Ownership.ReconcileClaimOwner(c, server), cancellationToken);
+				(pvc, conflict, reason) = await ApiWrites.UpdateClaimAsync(client, server, pvc, c => Ownership.ReconcileClaimOwner(c, server), cancellationToken);
+			if (!delete && HasFinalizer(server)
+				&& !Ownership.OwnsClaim(await client.GetAsync<V1PersistentVolumeClaim>(Resources.InstanceName(name), server.Namespace(), cancellationToken), server))
+				server = await SetFinalizerAsync(server, false, cancellationToken);
 			if (conflict is null)
 				(conflict, reason) = await EnsureConfigMapAsync(server, cancellationToken);
 			if (conflict is null)
@@ -139,7 +153,8 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 	public Task<ReconciliationResult<V1Alpha1ChromaServer>> DeletedAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
 	{
 		// The Pod, the Service and the ConfigMap have the ChromaServer as owner: the garbage collector of Kubernetes deletes them; the
-		// claim too with pvcDeletionPolicy Delete. With Retain the claim stays, with the data.
+		// claim too with pvcDeletionPolicy Delete, once a pass has made the server its owner. With Retain the claim stays, with the data:
+		// the passes remove the server from its owners, and ClaimFinalizer does it at the deletion for a change no pass applied yet.
 		var name = server.Metadata.Name;
 		Log.Deleted(logger, name);
 		return Task.FromResult(ReconciliationResult<V1Alpha1ChromaServer>.Success(server));
@@ -157,7 +172,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		if (pvc is null)
 			return (null, "");
 		var changedMeanwhile = false;
-		var (claim, conflict, reason) = await UpdateClaimAsync(server, pvc, c => RecordOn(c, status, readVersion, readIncident, ref changedMeanwhile), cancellationToken);
+		var (claim, conflict, reason) = await ApiWrites.UpdateClaimAsync(client, server, pvc, c => RecordOn(c, status, readVersion, readIncident, ref changedMeanwhile), cancellationToken);
 		// Another writer changed the data version or the incident while this pass wrote them: both are kept, merged, and the pass stops
 		// without touching the Pod, so that the next pass decides from the claim as it is now.
 		if (conflict is null && changedMeanwhile)
@@ -186,41 +201,6 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 			return false;
 		pvc.Metadata.Annotations = annotations;
 		return true;
-	}
-
-	/// <summary>
-	/// Changes the claim and writes it. When another writer changed it meanwhile (409), the claim is read again and the change made
-	/// again, a few times; a claim that keeps changing, or an update the API refuses, is returned with the reason, so that the pass
-	/// fails with what the Pod showed in the status, and leaves the Pod alone.
-	/// </summary>
-	private async Task<(V1PersistentVolumeClaim Claim, string? Conflict, string Reason)> UpdateClaimAsync(
-		V1Alpha1ChromaServer server, V1PersistentVolumeClaim claim, Func<V1PersistentVolumeClaim, bool> change, CancellationToken cancellationToken)
-	{
-		const int Attempts = 5;
-		for (var attempt = 1; attempt <= Attempts; attempt++)
-		{
-			if (attempt > 1)
-			{
-				var fresh = await client.GetAsync<V1PersistentVolumeClaim>(claim.Name(), claim.Namespace(), cancellationToken);
-				if (fresh is null || Ownership.ClaimConflict(fresh, server) is not null)
-					return (claim, $"The PersistentVolumeClaim {claim.Name()} changed while the operator wrote it.", "PersistentVolumeClaimConflict");
-				claim = fresh;
-			}
-			if (!change(claim))
-				return (claim, null, "NameConflict");
-			try
-			{
-				return (await client.UpdateAsync(claim, cancellationToken), null, "NameConflict");
-			}
-			catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.Conflict)
-			{
-			}
-			catch (HttpOperationException e) when (IsRefusal(e))
-			{
-				return (claim, $"The API refused the update of the PersistentVolumeClaim {claim.Name()}: {e.Response.Content}", "PersistentVolumeClaimRefused");
-			}
-		}
-		return (claim, $"The PersistentVolumeClaim {claim.Name()} kept changing while the operator wrote it ({Attempts} attempts).", "PersistentVolumeClaimConflict");
 	}
 
 	/// <summary>Null when the API would create the Pod; otherwise why it is invalid (422). The check uses another name, so that the running Pod does not conflict.</summary>
@@ -252,16 +232,27 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 	{
 		try
 		{
-			return (await client.UpdateAsync(value, cancellationToken), null, "NameConflict");
+			return (await client.UpdateAsync(value, cancellationToken), null, "");
 		}
 		catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.Conflict)
 		{
-			return (value, null, "NameConflict");
+			return (value, null, "");
 		}
-		catch (HttpOperationException e) when (IsRefusal(e))
+		catch (HttpOperationException e) when (ApiWrites.IsRefusal(e))
 		{
 			return (value, $"The API refused the update of the {kind} {value.Name()}: {e.Response.Content}", kind + "Refused");
 		}
+	}
+
+	private static bool HasFinalizer(V1Alpha1ChromaServer server) => server.Metadata.Finalizers?.Contains(ClaimFinalizer.Identifier) == true;
+
+	private Task<V1Alpha1ChromaServer> SetFinalizerAsync(V1Alpha1ChromaServer server, bool present, CancellationToken cancellationToken)
+	{
+		var finalizers = (server.Metadata.Finalizers ?? []).Where(f => f != ClaimFinalizer.Identifier).ToList();
+		if (present)
+			finalizers.Add(ClaimFinalizer.Identifier);
+		server.Metadata.Finalizers = finalizers;
+		return client.UpdateAsync(server, cancellationToken);
 	}
 
 	private async Task<V1Pod?> OwnedPodAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
@@ -312,10 +303,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		return changed ? await WriteAsync("Service", desired.Name(), () => client.UpdateAsync(current, cancellationToken)) : (null, "");
 	}
 
-	/// <summary>
-	/// A write the API refuses fails the server with the explanation of the API: invalid (422), like an annotation with a key that is
-	/// not a qualified name, or forbidden (403), like a ResourceQuota that is used up. A namespace being deleted is not a refusal.
-	/// </summary>
+	/// <summary>A write the API refuses (<see cref="ApiWrites.IsRefusal"/>) fails the server with the explanation of the API.</summary>
 	/// <param name="conflictIsFailure">Whether a conflict (409) fails the pass with what the Pod showed, as for a ConfigMap or a Service
 	/// changed meanwhile; false for the creation of the Pod, which is tried again on the next pass.</param>
 	private static async Task<(string? Conflict, string Reason)> WriteAsync<T>(string kind, string name, Func<Task<T>> write, bool conflictIsFailure = true)
@@ -325,7 +313,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 			await write();
 			return (null, "");
 		}
-		catch (HttpOperationException e) when (IsRefusal(e))
+		catch (HttpOperationException e) when (ApiWrites.IsRefusal(e))
 		{
 			return ($"The API refused the {kind} {name}: {e.Response.Content}", kind + "Refused");
 		}
@@ -334,10 +322,6 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 			return ($"The {kind} {name} changed while the operator wrote it: the next pass writes it again.", kind + "Conflict");
 		}
 	}
-
-	private static bool IsRefusal(HttpOperationException e) =>
-		e.Response.StatusCode == HttpStatusCode.UnprocessableEntity
-		|| (e.Response.StatusCode == HttpStatusCode.Forbidden && e.Response.Content?.Contains("NamespaceTerminating", StringComparison.Ordinal) != true);
 
 	/// <summary>The existing claim of the server, or why it cannot be used; null and null when there is none.</summary>
 	private async Task<(V1PersistentVolumeClaim? Pvc, string? Conflict)> ExistingPvcAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
@@ -360,7 +344,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		{
 			return (await client.CreateAsync(desired, cancellationToken), null, "");
 		}
-		catch (HttpOperationException e) when (IsRefusal(e))
+		catch (HttpOperationException e) when (ApiWrites.IsRefusal(e))
 		{
 			return (null, $"The API refused the PersistentVolumeClaim {pvc}: {e.Response.Content}", "PersistentVolumeClaimRefused");
 		}
