@@ -11,7 +11,7 @@ public class FifthReviewTests
 	[Test]
 	public void DataVersionCountsTheReportedImage()
 	{
-		var server = Server(Image153, dataVersion: "1.5.3", runningImage: Image153);
+		var server = NewChroma(Image153, dataVersion: "1.5.3", runningImage: Image153);
 		var pod = RunningPod(server, Image153);
 		pod.Status.ContainerStatuses[0].Image = Image159;
 		var outcome = Reconciliation.Decide(server, pod, null, Now, Defaults);
@@ -22,9 +22,9 @@ public class FifthReviewTests
 	[Test]
 	public void BlockedServerKeepsItsPodAgainstAConfigurationChange()
 	{
-		var upgrading = Server(Image159);
+		var upgrading = NewChroma(Image159);
 		var pod = RunningPod(upgrading, Image159, ready: false);
-		var server = Server(Image153, dataVersion: "1.5.9", runningImage: Image153);
+		var server = NewChroma(Image153, dataVersion: "1.5.9", runningImage: Image153);
 		server.Spec.Config = new() { MaxPayloadSizeBytes = 1000 };
 		var outcome = Reconciliation.Decide(server, pod, null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
@@ -36,7 +36,7 @@ public class FifthReviewTests
 	[TestCase(true)]
 	public void NodePortOfTheHttpPortStays(bool httpFirst)
 	{
-		var server = Server();
+		var server = NewChroma();
 		var current = Resources.Service(server);
 		current.Spec.Type = "NodePort";
 		var debug = new V1ServicePort { Name = "debug", Port = 8000, TargetPort = 8000, Protocol = "TCP", NodePort = 32000 };
@@ -50,14 +50,24 @@ public class FifthReviewTests
 	[Test]
 	public void ServerOfAPod()
 	{
-		var pod = Resources.Pod(Server(), Image159);
-		Assert.That(PodWatcher.ServerOf(pod), Is.EqualTo("demo"));
-		pod.Metadata.Labels[Labels.Server] = "other";
-		Assert.That(PodWatcher.ServerOf(pod), Is.EqualTo("demo"), "a wrong label");
-		pod.Metadata.Labels.Remove(Labels.Server);
-		Assert.That(PodWatcher.ServerOf(pod), Is.EqualTo("demo"), "no label");
+		var pod = Resources.Pod(NewChroma(), Image159);
+		Assert.That(PodWatcher.ChromaOf(pod), Is.EqualTo("demo"));
+		pod.Metadata.Labels[Labels.Chroma] = "other";
+		Assert.That(PodWatcher.ChromaOf(pod), Is.EqualTo("demo"), "a wrong label");
+		pod.Metadata.Labels.Remove(Labels.Chroma);
+		Assert.That(PodWatcher.ChromaOf(pod), Is.EqualTo("demo"), "no label");
 		pod.Metadata.OwnerReferences = null;
-		pod.Metadata.Labels[Labels.Server] = "label";
-		Assert.That(PodWatcher.ServerOf(pod), Is.EqualTo("label"), "no owner");
+		pod.Metadata.Labels[Labels.Chroma] = "label";
+		Assert.That(PodWatcher.ChromaOf(pod), Is.EqualTo("label"), "no owner");
+	}
+
+	// A kind Chroma of another group, from another operator, is not ours: the label decides.
+	[Test]
+	public void OwnerChromaOfAnotherGroupIsNotOurs()
+	{
+		var pod = Resources.Pod(NewChroma(), Image159);
+		pod.Metadata.OwnerReferences[0].ApiVersion = "example.com/v1";
+		pod.Metadata.Labels[Labels.Chroma] = "label";
+		Assert.That(PodWatcher.ChromaOf(pod), Is.EqualTo("label"));
 	}
 }

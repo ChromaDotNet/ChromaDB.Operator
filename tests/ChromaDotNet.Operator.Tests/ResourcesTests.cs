@@ -9,7 +9,7 @@ public class ResourcesTests
 	[Test]
 	public void NamesFollowTheInstance()
 	{
-		var server = Server();
+		var server = NewChroma();
 		Assert.That(Resources.Pod(server, Image159).Metadata.Name, Is.EqualTo("demo-1"));
 		Assert.That(Resources.Pvc(server).Metadata.Name, Is.EqualTo("demo-1"));
 		Assert.That(Resources.ConfigMap(server).Metadata.Name, Is.EqualTo("demo-config"));
@@ -24,7 +24,7 @@ public class ResourcesTests
 	[Test]
 	public void ConfigurationWithOptions()
 	{
-		var yaml = Resources.ConfigYaml(new V1Alpha1ChromaServer.ConfigSpec { MaxPayloadSizeBytes = 1000, CorsAllowOrigins = ["https://a.example", "say \"hi\"\\"] });
+		var yaml = Resources.ConfigYaml(new V1Alpha1Chroma.ConfigSpec { MaxPayloadSizeBytes = 1000, CorsAllowOrigins = ["https://a.example", "say \"hi\"\\"] });
 		Assert.That(yaml, Does.Contain("max_payload_size_bytes: 1000\n"));
 		Assert.That(yaml, Does.Contain("cors_allow_origins:\n  - \"https://a.example\"\n  - \"say \\\"hi\\\"\\\\\"\n"));
 	}
@@ -34,7 +34,7 @@ public class ResourcesTests
 	[Test]
 	public void PodIsTheMeasuredOne()
 	{
-		var pod = Resources.Pod(Server(), Image159);
+		var pod = Resources.Pod(NewChroma(), Image159);
 		var container = pod.Spec.Containers.Single();
 		Assert.Multiple(() =>
 		{
@@ -52,25 +52,25 @@ public class ResourcesTests
 			Assert.That(container.LivenessProbe.HttpGet.Path, Is.EqualTo("/api/v2/heartbeat"));
 			Assert.That(container.Env, Is.Null, "no CHROMA_ variable: the file is the whole configuration");
 			Assert.That(pod.Metadata.OwnerReferences.Single().Uid, Is.EqualTo("uid-1"));
-			Assert.That(pod.Metadata.Labels[Labels.Server], Is.EqualTo("demo"));
+			Assert.That(pod.Metadata.Labels[Labels.Chroma], Is.EqualTo("demo"));
 		});
 	}
 
 	[Test]
 	public void PodHashChangesWithTheImageAndTheConfiguration()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var hash = Resources.Pod(server, Image159).Metadata.Annotations[Labels.PodSpecHash];
-		Assert.That(Resources.Pod(Server(), Image159).Metadata.Annotations[Labels.PodSpecHash], Is.EqualTo(hash), "stable");
+		Assert.That(Resources.Pod(NewChroma(), Image159).Metadata.Annotations[Labels.PodSpecHash], Is.EqualTo(hash), "stable");
 		Assert.That(Resources.Pod(server, Image153).Metadata.Annotations[Labels.PodSpecHash], Is.Not.EqualTo(hash), "image");
-		server.Spec.Config = new V1Alpha1ChromaServer.ConfigSpec { MaxPayloadSizeBytes = 1000 };
+		server.Spec.Config = new V1Alpha1Chroma.ConfigSpec { MaxPayloadSizeBytes = 1000 };
 		Assert.That(Resources.Pod(server, Image159).Metadata.Annotations[Labels.PodSpecHash], Is.Not.EqualTo(hash), "configuration");
 	}
 
 	[Test]
 	public void ClaimIsOwnedOnlyWithDelete()
 	{
-		var server = Server();
+		var server = NewChroma();
 		Assert.That(Resources.Pvc(server).Metadata.OwnerReferences, Is.Null, "Retain by default");
 		server.Spec.PvcDeletionPolicy = "Delete";
 		Assert.That(Resources.Pvc(server).Metadata.OwnerReferences.Single().Name, Is.EqualTo("demo"));
@@ -79,8 +79,8 @@ public class ResourcesTests
 	[Test]
 	public void ServiceSelectsThePod()
 	{
-		var service = Resources.Service(Server());
-		Assert.That(service.Spec.Selector, Is.EqualTo(new Dictionary<string, string> { [Labels.Server] = "demo" }));
+		var service = Resources.Service(NewChroma());
+		Assert.That(service.Spec.Selector, Is.EqualTo(new Dictionary<string, string> { [Labels.Chroma] = "demo" }));
 		Assert.That(service.Spec.Type, Is.EqualTo("ClusterIP"));
 		Assert.That(service.Spec.Ports.Single().Port, Is.EqualTo(8000));
 	}

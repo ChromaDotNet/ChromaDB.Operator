@@ -11,7 +11,7 @@ public class FourteenthReviewTests
 	[Test]
 	public void StaleClaimIncidentDoesNotCoverAnotherImage()
 	{
-		var server = Server(Image159, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159);
 		var pod = RunningPod(server, Image159);
 		pod.Metadata.Uid = "pod-1";
 		pod.Spec.Containers[0].Image = "docker.io/chromadb/chroma:latest";

@@ -11,7 +11,7 @@ public class ThirdReviewTests
 	[Test]
 	public void ImageNeverPulledFailsTheServer()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var pod = RunningPod(server, Image159, ready: false);
 		pod.Status.ContainerStatuses[0].State = new V1ContainerState { Waiting = new V1ContainerStateWaiting { Reason = "ErrImageNeverPull" } };
 		var outcome = Reconciliation.Decide(server, pod, null, Now, Defaults);
@@ -23,7 +23,7 @@ public class ThirdReviewTests
 	[Test]
 	public void PodWithAnotherImageThanItsAnnotationIsReplaced()
 	{
-		var server = Server(Image159, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159);
 		var pod = RunningPod(server, Image159);
 		pod.Spec.Containers[0].Image = "docker.io/chromadb/chroma:1.5.8";
 		var outcome = Reconciliation.Decide(server, pod, null, Now, Defaults);
@@ -34,7 +34,7 @@ public class ThirdReviewTests
 	[Test]
 	public void ServiceRoutingIsRestored()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var desired = Resources.Service(server);
 		var current = Resources.Service(server);
 		current.Spec.ClusterIP = "10.43.0.10";
@@ -55,7 +55,7 @@ public class ThirdReviewTests
 	[Test]
 	public void ServiceWithAnExtraPortIsRestored()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var current = Resources.Service(server);
 		current.Spec.Ports.Add(new V1ServicePort { Name = "debug", Port = 9999 });
 		Assert.That(Ownership.ApplyRouting(current, Resources.Service(server)), Is.True);

@@ -25,9 +25,9 @@ public class ManifestTests
 			"/persistentvolumeclaims: create,get,update",
 			"/pods: create,delete,get,list,update,watch",
 			"/services: create,get,update",
-			"chroma.chromadotnet.org/chromaservers: get,list,update,watch",
-			"chroma.chromadotnet.org/chromaservers/finalizers: update",
-			"chroma.chromadotnet.org/chromaservers/status: update",
+			"chroma.chromadotnet.org/chromas: get,list,update,watch",
+			"chroma.chromadotnet.org/chromas/finalizers: update",
+			"chroma.chromadotnet.org/chromas/status: update",
 		}));
 		Assert.That(Objects.OfType<V1ClusterRole>().Single().Rules.All(r => r.NonResourceURLs is null or { Count: 0 }), Is.True);
 	}
@@ -36,13 +36,13 @@ public class ManifestTests
 	[Test]
 	public void ManifestHasTheRulesOfTheAttributes()
 	{
-		var types = typeof(ChromaServerController).Assembly.GetTypes();
+		var types = typeof(ChromaController).Assembly.GetTypes();
 		var entities = types.SelectMany(t => t.GetCustomAttributes<EntityRbacAttribute>())
 			.SelectMany(a => a.Entities.Select(e => e.GetCustomAttribute<KubernetesEntityAttribute>()!)
 				.Select(k => $"{k.Group}/{k.PluralName}: {Verbs(a.Verbs)}"));
 		var generic = types.SelectMany(t => t.GetCustomAttributes<GenericRbacAttribute>())
 			.SelectMany(a => a.Groups.SelectMany(g => a.Resources.Select(r => $"{g}/{r}: {Verbs(a.Verbs)}")));
-		Assert.That(Granted().Where(g => !g.StartsWith("chroma.chromadotnet.org/chromaservers/status:", StringComparison.Ordinal)),
+		Assert.That(Granted().Where(g => !g.StartsWith("chroma.chromadotnet.org/chromas/status:", StringComparison.Ordinal)),
 			Is.EquivalentTo(entities.Concat(generic)));
 	}
 

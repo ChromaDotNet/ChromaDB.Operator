@@ -10,7 +10,7 @@ public class SixteenthReviewTests
 	[Test]
 	public void DeclarationEndsWhenThePodChangesImage()
 	{
-		var server = Server(Image159, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159);
 		var pod = RunningPod(server, Image159);
 		pod.Metadata.Uid = "pod-1";
 		pod.Spec.Containers[0].Image = "docker.io/chromadb/chroma:latest";
@@ -33,7 +33,7 @@ public class SixteenthReviewTests
 	[Test]
 	public void DeclarationOfOneIncidentDoesNotClearAnother()
 	{
-		var server = Server(Image159, dataVersion: "1.5.3", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.5.3", runningImage: Image159);
 		server.Status!.DataVersionUnknown = true;
 		server.Status.DataVersionUnknownIncident = "aaaa1111";
 		server.Metadata.Annotations = new Dictionary<string, string> { [Labels.DeclaredDataVersion] = "1.5.9/aaaa1111" };

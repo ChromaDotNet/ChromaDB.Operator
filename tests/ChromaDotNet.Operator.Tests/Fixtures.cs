@@ -14,20 +14,20 @@ internal static class Fixtures
 	public static readonly DateTime Now = new(2026, 10, 22, 12, 0, 0, DateTimeKind.Utc);
 	public static readonly OperatorOptions Defaults = new();
 
-	public static V1Alpha1ChromaServer Server(string image = Image159, string? dataVersion = null, string? runningImage = null)
+	public static V1Alpha1Chroma NewChroma(string image = Image159, string? dataVersion = null, string? runningImage = null)
 	{
-		var server = new V1Alpha1ChromaServer
+		var server = new V1Alpha1Chroma
 		{
 			Metadata = new V1ObjectMeta { Name = "demo", NamespaceProperty = "rag", Uid = "uid-1", Generation = 3 },
-			Spec = new V1Alpha1ChromaServer.ServerSpec { Image = image, Storage = new V1Alpha1ChromaServer.StorageSpec { Size = "1Gi" } },
+			Spec = new V1Alpha1Chroma.ChromaSpec { Image = image, Storage = new V1Alpha1Chroma.StorageSpec { Size = "1Gi" } },
 		};
 		if (dataVersion is not null || runningImage is not null)
-			server.Status = new V1Alpha1ChromaServer.ServerStatus { DataVersion = dataVersion, Image = runningImage, Phase = "Ready" };
+			server.Status = new V1Alpha1Chroma.ChromaStatus { DataVersion = dataVersion, Image = runningImage, Phase = "Ready" };
 		return server;
 	}
 
 	/// <summary>The Pod the operator would create, as the kubelet reports it once it runs.</summary>
-	public static V1Pod RunningPod(V1Alpha1ChromaServer server, string image, bool ready = true)
+	public static V1Pod RunningPod(V1Alpha1Chroma server, string image, bool ready = true)
 	{
 		var pod = Resources.Pod(server, image);
 		pod.Status = new V1PodStatus

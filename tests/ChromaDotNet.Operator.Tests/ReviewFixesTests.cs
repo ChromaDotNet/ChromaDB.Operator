@@ -12,7 +12,7 @@ public class ReviewFixesTests
 	[Test]
 	public void FallbackOlderThanTheDataStartsNothing()
 	{
-		var server = Server(Image153, dataVersion: "1.5.9", runningImage: Image153);
+		var server = NewChroma(Image153, dataVersion: "1.5.9", runningImage: Image153);
 		var outcome = Reconciliation.Decide(server, null, null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Failed"));
@@ -23,9 +23,9 @@ public class ReviewFixesTests
 	[Test]
 	public void FallbackOlderThanTheDataKeepsARunningPod()
 	{
-		var server = Server(Image153, dataVersion: "1.5.9", runningImage: Image153);
+		var server = NewChroma(Image153, dataVersion: "1.5.9", runningImage: Image153);
 		server.Spec.Config = new() { MaxPayloadSizeBytes = 1000 };
-		var outcome = Reconciliation.Decide(server, RunningPod(Server(Image153), Image153), null, Now, Defaults);
+		var outcome = Reconciliation.Decide(server, RunningPod(NewChroma(Image153), Image153), null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 	}
 
@@ -33,7 +33,7 @@ public class ReviewFixesTests
 	[Test]
 	public void FallbackNoLongerAllowedStartsNothing()
 	{
-		var server = Server("docker.io/someone/x:1.5.9", dataVersion: "1.5.9", runningImage: "docker.io/someone/x:1.5.9");
+		var server = NewChroma("docker.io/someone/x:1.5.9", dataVersion: "1.5.9", runningImage: "docker.io/someone/x:1.5.9");
 		var outcome = Reconciliation.Decide(server, null, null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Failed"));
@@ -45,7 +45,7 @@ public class ReviewFixesTests
 	public void OversizedVersionIsInvalid(string image)
 	{
 		Assert.That(ChromaImage.VersionOf(image), Is.Null);
-		var outcome = Reconciliation.Decide(Server(image), null, null, Now, Defaults);
+		var outcome = Reconciliation.Decide(NewChroma(image), null, null, Now, Defaults);
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Failed"));
 		Assert.That(Condition(outcome, "Ready").Reason, Is.EqualTo("InvalidImage"));
 	}
@@ -53,7 +53,7 @@ public class ReviewFixesTests
 	[Test]
 	public void ObjectsOfOthersAreConflicts()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var ours = Resources.ConfigMap(server).Metadata;
 		Assert.That(Ownership.Conflict("ConfigMap", ours, server), Is.Null);
 		var unowned = new V1ObjectMeta { Name = "demo-config" };
@@ -65,15 +65,15 @@ public class ReviewFixesTests
 	[Test]
 	public void ClaimsThatCanBeUsed()
 	{
-		var server = Server();
+		var server = NewChroma();
 		Assert.That(Ownership.ClaimConflict(Resources.Pvc(server), server), Is.Null, "retained claim of this name: labels, no owner");
 		server.Spec.PvcDeletionPolicy = "Delete";
 		Assert.That(Ownership.ClaimConflict(Resources.Pvc(server), server), Is.Null, "owned claim");
 
 		var foreign = new V1PersistentVolumeClaim { Metadata = new V1ObjectMeta { Name = "demo-1" } };
 		Assert.That(Ownership.ClaimConflict(foreign, server), Does.Contain("label"));
-		var otherServer = Resources.Pvc(Server());
-		otherServer.Metadata.Labels[Labels.Server] = "other";
+		var otherServer = Resources.Pvc(NewChroma());
+		otherServer.Metadata.Labels[Labels.Chroma] = "other";
 		Assert.That(Ownership.ClaimConflict(otherServer, server), Is.Not.Null);
 		var controlled = new V1PersistentVolumeClaim
 		{
@@ -90,7 +90,7 @@ public class ReviewFixesTests
 	[Test]
 	public void ClaimOwnerFollowsThePolicy()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var pvc = Resources.Pvc(server);
 		var unrelated = new V1OwnerReference { Kind = "Backup", Name = "b", Uid = "uid-7", ApiVersion = "x/v1" };
 		pvc.Metadata.OwnerReferences = [unrelated];
@@ -138,7 +138,7 @@ public class ReviewFixesTests
 	[Test]
 	public void InvalidNameFailsWithoutObjects()
 	{
-		var server = Server();
+		var server = NewChroma();
 		server.Metadata.Name = "team.db";
 		var outcome = Reconciliation.Decide(server, null, null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));

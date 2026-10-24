@@ -12,7 +12,7 @@ public class TwelfthReviewTests
 	[Test]
 	public void DeclaredPodIsRecognizedWhileItStops()
 	{
-		var server = Server(Image159, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159);
 		var pod = RunningPod(server, Image159);
 		pod.Metadata.Uid = "pod-1";
 		pod.Spec.Containers[0].Image = Unversioned;
@@ -41,7 +41,7 @@ public class TwelfthReviewTests
 	[Test]
 	public void DeclarationDoesNotCoverAnotherImage()
 	{
-		var server = Server(Image159, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159);
 		var pod = RunningPod(server, Image159);
 		pod.Metadata.Uid = "pod-1";
 		pod.Spec.Containers[0].Image = Unversioned;

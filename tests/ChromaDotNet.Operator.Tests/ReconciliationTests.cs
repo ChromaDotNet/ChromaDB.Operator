@@ -9,7 +9,7 @@ public class ReconciliationTests
 	[Test]
 	public void NoPodCreatesOne()
 	{
-		var outcome = Reconciliation.Decide(Server(), null, null, Now, Defaults);
+		var outcome = Reconciliation.Decide(NewChroma(), null, null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.Create));
 		Assert.That(outcome.DesiredPod!.Spec.Containers[0].Image, Is.EqualTo(Image159));
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Creating"));
@@ -20,7 +20,7 @@ public class ReconciliationTests
 	[Test]
 	public void ReadyPodMakesTheServerReady()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var outcome = Reconciliation.Decide(server, RunningPod(server, Image159), null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Ready"));
@@ -37,7 +37,7 @@ public class ReconciliationTests
 	[Test]
 	public void NewImageReplacesThePod()
 	{
-		var server = Server(Image159, dataVersion: "1.5.3", runningImage: Image153);
+		var server = NewChroma(Image159, dataVersion: "1.5.3", runningImage: Image153);
 		var outcome = Reconciliation.Decide(server, RunningPod(server, Image153), null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.Delete));
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Updating"));
@@ -54,7 +54,7 @@ public class ReconciliationTests
 	[Test]
 	public void NewConfigurationReplacesThePod()
 	{
-		var server = Server(dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(dataVersion: "1.5.9", runningImage: Image159);
 		var pod = RunningPod(server, Image159);
 		server.Spec.Config = new() { MaxPayloadSizeBytes = 1000 };
 		Assert.That(Reconciliation.Decide(server, pod, null, Now, Defaults).Action, Is.EqualTo(PodAction.Delete));
@@ -63,7 +63,7 @@ public class ReconciliationTests
 	[Test]
 	public void TerminatingPodIsAwaited()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var pod = RunningPod(server, Image153);
 		pod.Metadata.DeletionTimestamp = Now;
 		Assert.That(Reconciliation.Decide(server, pod, null, Now, Defaults).Action, Is.EqualTo(PodAction.Wait));
@@ -73,7 +73,7 @@ public class ReconciliationTests
 	[TestCase("Succeeded")]
 	public void EndedPodIsReplaced(string phase)
 	{
-		var server = Server();
+		var server = NewChroma();
 		var pod = RunningPod(server, Image159);
 		pod.Status.Phase = phase;
 		Assert.That(Reconciliation.Decide(server, pod, null, Now, Defaults).Action, Is.EqualTo(PodAction.Delete));
@@ -83,7 +83,7 @@ public class ReconciliationTests
 	[Test]
 	public void OlderImageThanTheDataIsRefused()
 	{
-		var server = Server(Image153, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image153, dataVersion: "1.5.9", runningImage: Image159);
 		var outcome = Reconciliation.Decide(server, RunningPod(server, Image159), null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None), "the running Pod stays");
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Ready"));
@@ -96,7 +96,7 @@ public class ReconciliationTests
 	[Test]
 	public void OlderImageIsAllowedWithTheAnnotation()
 	{
-		var server = Server(Image153, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image153, dataVersion: "1.5.9", runningImage: Image159);
 		server.Metadata.Annotations = new Dictionary<string, string> { [Labels.AllowDowngrade] = "true" };
 		var outcome = Reconciliation.Decide(server, RunningPod(server, Image159), null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.Delete));
@@ -107,18 +107,18 @@ public class ReconciliationTests
 	[Test]
 	public void RefusedImageWithoutARunningPodRestartsTheRunningImage()
 	{
-		var server = Server(Image153, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image153, dataVersion: "1.5.9", runningImage: Image159);
 		var outcome = Reconciliation.Decide(server, null, null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.Create));
 		Assert.That(outcome.DesiredPod!.Spec.Containers[0].Image, Is.EqualTo(Image159));
 	}
 
-	// A ChromaServer created again on a claim kept with Retain: the data version comes from the claim. The new server has seen no image
+	// A Chroma created again on a claim kept with Retain: the data version comes from the claim. The new server has seen no image
 	// it could start instead, so it starts nothing.
 	[Test]
 	public void DataVersionOfARetainedClaim()
 	{
-		var outcome = Reconciliation.Decide(Server(Image153), null, "1.5.9", Now, Defaults);
+		var outcome = Reconciliation.Decide(NewChroma(Image153), null, "1.5.9", Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Failed"));
 		Assert.That(outcome.Status.DataVersion, Is.EqualTo("1.5.9"));
@@ -131,7 +131,7 @@ public class ReconciliationTests
 	[Test]
 	public void DataVersionGrowsWhenTheContainerHasRun()
 	{
-		var server = Server(Image159, dataVersion: "1.5.3", runningImage: Image153);
+		var server = NewChroma(Image159, dataVersion: "1.5.3", runningImage: Image153);
 		var pod = RunningPod(server, Image159, ready: false);
 		var outcome = Reconciliation.Decide(server, pod, null, Now, Defaults);
 		Assert.That(outcome.Status.DataVersion, Is.EqualTo("1.5.9"));
@@ -142,7 +142,7 @@ public class ReconciliationTests
 	[Test]
 	public void DataVersionCountsAPodThatHasNotRun()
 	{
-		var server = Server(Image159, dataVersion: "1.5.3", runningImage: Image153);
+		var server = NewChroma(Image159, dataVersion: "1.5.3", runningImage: Image153);
 		var pod = RunningPod(server, Image159, ready: false);
 		pod.Status.ContainerStatuses[0] = new V1ContainerStatus
 		{
@@ -159,7 +159,7 @@ public class ReconciliationTests
 	[TestCase("ImagePullBackOff")]
 	public void FailingContainerFailsTheServer(string reason)
 	{
-		var server = Server();
+		var server = NewChroma();
 		var pod = RunningPod(server, Image159, ready: false);
 		pod.Status.ContainerStatuses[0].State = new V1ContainerState { Waiting = new V1ContainerStateWaiting { Reason = reason, Message = "details" } };
 		var outcome = Reconciliation.Decide(server, pod, null, Now, Defaults);
@@ -171,7 +171,7 @@ public class ReconciliationTests
 	[Test]
 	public void ImageOutsideTheAllowedRepositoriesIsRefused()
 	{
-		var server = Server("docker.io/someone/not-chroma:1.5.9", dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma("docker.io/someone/not-chroma:1.5.9", dataVersion: "1.5.9", runningImage: Image159);
 		var outcome = Reconciliation.Decide(server, RunningPod(server, Image159), null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 		Assert.That(outcome.Status.Image, Is.EqualTo(Image159));
@@ -184,7 +184,7 @@ public class ReconciliationTests
 	[Test]
 	public void ImageOutsideTheAllowedRepositoriesStartsNothing()
 	{
-		var outcome = Reconciliation.Decide(Server("docker.io/someone/not-chroma:1.5.9"), null, null, Now, Defaults);
+		var outcome = Reconciliation.Decide(NewChroma("docker.io/someone/not-chroma:1.5.9"), null, null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Failed"));
 	}
@@ -192,7 +192,7 @@ public class ReconciliationTests
 	[Test]
 	public void AnyImageWhenTheAdministratorAllowsIt()
 	{
-		var outcome = Reconciliation.Decide(Server("registry.local:5055/team/chroma:1.5.9"), null, null, Now, new OperatorOptions(allowedImages: "*"));
+		var outcome = Reconciliation.Decide(NewChroma("registry.local:5055/team/chroma:1.5.9"), null, null, Now, new OperatorOptions(allowedImages: "*"));
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.Create));
 	}
 
@@ -200,7 +200,7 @@ public class ReconciliationTests
 	[Test]
 	public void InvalidImageFailsWithoutTouchingThePod()
 	{
-		var server = Server("chromadb/chroma:latest", dataVersion: "1.5.3", runningImage: Image153);
+		var server = NewChroma("chromadb/chroma:latest", dataVersion: "1.5.3", runningImage: Image153);
 		var outcome = Reconciliation.Decide(server, RunningPod(server, Image159), null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 		Assert.That(outcome.DesiredPod, Is.Null);
@@ -209,14 +209,14 @@ public class ReconciliationTests
 		Assert.That(outcome.Status.DataVersion, Is.EqualTo("1.5.9"));
 		Assert.That(outcome.Status.RecoveryImage, Is.EqualTo(Image159));
 
-		var withoutPod = Reconciliation.Decide(Server("chromadb/chroma:latest"), null, null, Now, Defaults);
+		var withoutPod = Reconciliation.Decide(NewChroma("chromadb/chroma:latest"), null, null, Now, Defaults);
 		Assert.That(withoutPod.Action, Is.EqualTo(PodAction.None), "nothing is created either");
 	}
 
 	[Test]
 	public void TransitionTimeChangesOnlyWithTheStatus()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var first = Reconciliation.Decide(server, RunningPod(server, Image159), null, Now, Defaults);
 		server.Status = first.Status;
 		var later = Reconciliation.Decide(server, RunningPod(server, Image159), null, Now.AddMinutes(5), Defaults);

@@ -38,7 +38,7 @@ rules:
 - apiGroups:
   - chroma.chromadotnet.org
   resources:
-  - chromaservers
+  - chromas
   verbs:
   - get
   - list
@@ -48,13 +48,13 @@ rules:
   - chroma.chromadotnet.org
   nonResourceURLs: []
   resources:
-  - chromaservers/finalizers
+  - chromas/finalizers
   verbs:
   - update
 - apiGroups:
   - chroma.chromadotnet.org
   resources:
-  - chromaservers/status
+  - chromas/status
   verbs:
   - get
   - update

@@ -5,8 +5,8 @@ internal static class Labels
 {
 	public const string Group = "chroma.chromadotnet.org";
 
-	/// <summary>The ChromaServer a resource belongs to.</summary>
-	public const string Server = Group + "/server";
+	/// <summary>The Chroma a resource belongs to.</summary>
+	public const string Chroma = Group + "/chroma";
 
 	/// <summary>The hash of the configuration in the ConfigMap, on the Pod: a change restarts the Pod.</summary>
 	public const string ConfigHash = Group + "/config-hash";
@@ -17,11 +17,11 @@ internal static class Labels
 	/// <summary>On the Service, the keys of the annotations that come from spec.service.annotations, to remove those no longer there.</summary>
 	public const string ManagedAnnotations = Group + "/managed-annotations";
 
-	/// <summary>On a ChromaServer, "true" allows an image older than status.dataVersion.</summary>
+	/// <summary>On a Chroma, "true" allows an image older than status.dataVersion.</summary>
 	public const string AllowDowngrade = Group + "/allow-downgrade";
 
 	/// <summary>
-	/// On a ChromaServer, the version an administrator says the data has, when an image without a version ran on it, with the code of the
+	/// On a Chroma, the version an administrator says the data has, when an image without a version ran on it, with the code of the
 	/// incident it resolves: &lt;x.y.z&gt;/&lt;code&gt;, the code being status.dataVersionUnknownIncident.
 	/// </summary>
 	public const string DeclaredDataVersion = Group + "/declared-data-version";
@@ -45,6 +45,6 @@ internal static class Labels
 		["app.kubernetes.io/name"] = "chroma",
 		["app.kubernetes.io/instance"] = server,
 		["app.kubernetes.io/managed-by"] = ManagedBy,
-		[Server] = server,
+		[Chroma] = server,
 	};
 }

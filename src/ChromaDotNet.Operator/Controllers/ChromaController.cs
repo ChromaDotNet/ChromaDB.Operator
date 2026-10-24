@@ -13,23 +13,23 @@ using Microsoft.Extensions.Logging;
 namespace ChromaDotNet.Operator.Controllers;
 
 /// <summary>
-/// Reconciles a ChromaServer: the ConfigMap, the Service, the PersistentVolumeClaim and the Pod. The watcher of KubeOps reacts to
+/// Reconciles a Chroma: the ConfigMap, the Service, the PersistentVolumeClaim and the Pod. The watcher of KubeOps reacts to
 /// changes of the spec only, so the controller looks again on its own: every 2 seconds while the server is not ready, every 30
 /// seconds after, and at once when one of its Pods changes (<see cref="PodWatcher"/>). The Pod and the PersistentVolumeClaim are
 /// managed directly, as CloudNativePG does, without a StatefulSet. Objects with the same names that belong to someone else are never
 /// changed: the server fails with the reason (<see cref="Ownership"/>).
 /// </summary>
-// Only what the operator does. On the ChromaServers: the watch, the default image and the finalizer (update), and the status. The
+// Only what the operator does. On the Chroma resources: the watch, the default image and the finalizer (update), and the status. The
 // owner references of its objects block the deletion of the server (blockOwnerDeletion): with OwnerReferencesPermissionEnforcement,
-// as on OpenShift, setting them needs update on chromaservers/finalizers. On the core types GenericRbac, since EntityRbac would add
+// as on OpenShift, setting them needs update on chromas/finalizers. On the core types GenericRbac, since EntityRbac would add
 // their status too: the Pods are watched, recreated and deleted, the other objects read, created and updated.
-[EntityRbac(typeof(V1Alpha1ChromaServer), Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Watch | RbacVerb.Update)]
-[GenericRbac(Groups = [Labels.Group], Resources = ["chromaservers/finalizers"], Verbs = RbacVerb.Update)]
+[EntityRbac(typeof(V1Alpha1Chroma), Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Watch | RbacVerb.Update)]
+[GenericRbac(Groups = [Labels.Group], Resources = ["chromas/finalizers"], Verbs = RbacVerb.Update)]
 [GenericRbac(Groups = [""], Resources = ["pods"],
 	Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Watch | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
 [GenericRbac(Groups = [""], Resources = ["configmaps", "persistentvolumeclaims", "services"], Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
-public sealed class ChromaServerController(IKubernetesClient client, OperatorOptions options, ILogger<ChromaServerController> logger)
-	: IEntityController<V1Alpha1ChromaServer>
+public sealed class ChromaController(IKubernetesClient client, OperatorOptions options, ILogger<ChromaController> logger)
+	: IEntityController<V1Alpha1Chroma>
 {
 	public static readonly TimeSpan FirstRetry = TimeSpan.FromSeconds(10);
 	public static readonly TimeSpan LastRetry = TimeSpan.FromMinutes(5);
@@ -42,7 +42,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 	/// exception would be retried by KubeOps a few times, then dropped, and the server would not be reconciled until its next change. It
 	/// comes back after 10 seconds, then 20, 40, up to 5 minutes, and the condition Reconciled says why, if the API takes the status.
 	/// </summary>
-	public async Task<ReconciliationResult<V1Alpha1ChromaServer>> ReconcileAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
+	public async Task<ReconciliationResult<V1Alpha1Chroma>> ReconcileAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
 	{
 		try
 		{
@@ -52,7 +52,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 			if (result.Entity.Status?.Conditions.FirstOrDefault(c => c.Type == "Reconciled") is { Status: "False" })
 			{
 				Reconciliation.SetCondition(result.Entity.Status, "Reconciled", true, "Succeeded", "", DateTime.UtcNow);
-				return ReconciliationResult<V1Alpha1ChromaServer>.Success(await client.UpdateStatusAsync(result.Entity, cancellationToken), result.RequeueAfter);
+				return ReconciliationResult<V1Alpha1Chroma>.Success(await client.UpdateStatusAsync(result.Entity, cancellationToken), result.RequeueAfter);
 			}
 			return result;
 		}
@@ -62,7 +62,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		}
 	}
 
-	private async Task<ReconciliationResult<V1Alpha1ChromaServer>> FailedAsync(V1Alpha1ChromaServer server, Exception e, CancellationToken cancellationToken)
+	private async Task<ReconciliationResult<V1Alpha1Chroma>> FailedAsync(V1Alpha1Chroma server, Exception e, CancellationToken cancellationToken)
 	{
 		var name = server.Name();
 		var failures = Failures.AddOrUpdate(server.Uid(), 1, (_, n) => n + 1);
@@ -75,8 +75,8 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		try
 		{
 			// The pass may have written the server: its copy here is out of date.
-			var current = await client.GetAsync<V1Alpha1ChromaServer>(name, server.Namespace(), cancellationToken) ?? server;
-			var status = current.Status ?? new V1Alpha1ChromaServer.ServerStatus();
+			var current = await client.GetAsync<V1Alpha1Chroma>(name, server.Namespace(), cancellationToken) ?? server;
+			var status = current.Status ?? new V1Alpha1Chroma.ChromaStatus();
 			Reconciliation.SetCondition(status, "Reconciled", false, reason, message, DateTime.UtcNow);
 			current.Status = status;
 			await client.UpdateStatusAsync(current, cancellationToken);
@@ -85,14 +85,22 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		{
 			// The status could not be written either, as when the API does not answer: the log has the reason.
 		}
-		return ReconciliationResult<V1Alpha1ChromaServer>.Failure(server, message, e, delay);
+		return ReconciliationResult<V1Alpha1Chroma>.Failure(server, message, e, delay);
 	}
 
-	private async Task<ReconciliationResult<V1Alpha1ChromaServer>> PassAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
+	private async Task<ReconciliationResult<V1Alpha1Chroma>> PassAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
 	{
 		var name = server.Name();
 		try
 		{
+			// The distributed mode is in the schema, so that the resource keeps its shape, but this version of the operator does not
+			// implement it: nothing is created, not even the default image in the spec, and the status says why. No requeue: the mode
+			// does not change, and a change of the spec comes with the watch.
+			if (server.Spec.Mode == V1Alpha1Chroma.ChromaSpec.Distributed)
+			{
+				var written = await WriteStatusAsync(server, Reconciliation.DistributedNotImplemented(server, DateTime.UtcNow), cancellationToken);
+				return ReconciliationResult<V1Alpha1Chroma>.Success(written.Entity);
+			}
 			// Without an image, the default of the operator goes into the spec: the version is then written down, and a new version of the
 			// operator with another default does not change it. The pass goes on with the updated server, so that what a Pod shows is
 			// recorded in this pass too.
@@ -196,34 +204,34 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.Conflict)
 		{
 			// Another writer changed an object between the read and the write: the next pass reads it again.
-			return ReconciliationResult<V1Alpha1ChromaServer>.Success(server, TimeSpan.FromSeconds(1));
+			return ReconciliationResult<V1Alpha1Chroma>.Success(server, TimeSpan.FromSeconds(1));
 		}
 		catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.Forbidden && e.Response.Content?.Contains("NamespaceTerminating", StringComparison.Ordinal) == true)
 		{
-			// The namespace is being deleted, with the ChromaServer in it: nothing more to create there.
-			return ReconciliationResult<V1Alpha1ChromaServer>.Success(server);
+			// The namespace is being deleted, with the Chroma in it: nothing more to create there.
+			return ReconciliationResult<V1Alpha1Chroma>.Success(server);
 		}
 	}
 
-	public Task<ReconciliationResult<V1Alpha1ChromaServer>> DeletedAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
+	public Task<ReconciliationResult<V1Alpha1Chroma>> DeletedAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
 	{
-		// The Pod, the Service and the ConfigMap have the ChromaServer as owner: the garbage collector of Kubernetes deletes them; the
+		// The Pod, the Service and the ConfigMap have the Chroma as owner: the garbage collector of Kubernetes deletes them; the
 		// claim too with pvcDeletionPolicy Delete, once a pass has made the server its owner. With Retain the claim stays, with the data:
 		// the passes remove the server from its owners, and ClaimFinalizer does it at the deletion for a change no pass applied yet.
 		var name = server.Metadata.Name;
 		Failures.TryRemove(server.Uid(), out _);
 		Log.Deleted(logger, name);
-		return Task.FromResult(ReconciliationResult<V1Alpha1ChromaServer>.Success(server));
+		return Task.FromResult(ReconciliationResult<V1Alpha1Chroma>.Success(server));
 	}
 
 	/// <summary>
-	/// The data version on the claim too, and whether it is unknown: a ChromaServer created again on a retained claim then knows them.
+	/// The data version on the claim too, and whether it is unknown: a Chroma created again on a retained claim then knows them.
 	/// An update the API refuses is returned, as for the other writes.
 	/// </summary>
 	/// <param name="readVersion">The data version on the claim when this pass read it.</param>
 	/// <param name="readIncident">The incident on the claim when this pass read it.</param>
-	private async Task<(string? Conflict, string Reason)> RecordDataVersionAsync(V1Alpha1ChromaServer server, V1PersistentVolumeClaim? pvc,
-		V1Alpha1ChromaServer.ServerStatus status, string? readVersion, string? readIncident, CancellationToken cancellationToken)
+	private async Task<(string? Conflict, string Reason)> RecordDataVersionAsync(V1Alpha1Chroma server, V1PersistentVolumeClaim? pvc,
+		V1Alpha1Chroma.ChromaStatus status, string? readVersion, string? readIncident, CancellationToken cancellationToken)
 	{
 		if (pvc is null)
 			return (null, "");
@@ -240,7 +248,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 	/// Writes the data version and the incident of the status on the claim, merged with what the claim has now: a version is never
 	/// lowered, and an incident the claim got from elsewhere is not cleared.
 	/// </summary>
-	private static bool RecordOn(V1PersistentVolumeClaim pvc, V1Alpha1ChromaServer.ServerStatus status, string? readVersion, string? readIncident, ref bool changedMeanwhile)
+	private static bool RecordOn(V1PersistentVolumeClaim pvc, V1Alpha1Chroma.ChromaStatus status, string? readVersion, string? readIncident, ref bool changedMeanwhile)
 	{
 		var annotations = pvc.Metadata.Annotations is null ? new Dictionary<string, string>() : new Dictionary<string, string>(pvc.Metadata.Annotations);
 		var before = new Dictionary<string, string>(annotations);
@@ -337,9 +345,9 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		}
 	}
 
-	private static bool HasFinalizer(V1Alpha1ChromaServer server) => server.Metadata.Finalizers?.Contains(ClaimFinalizer.Identifier) == true;
+	private static bool HasFinalizer(V1Alpha1Chroma server) => server.Metadata.Finalizers?.Contains(ClaimFinalizer.Identifier) == true;
 
-	private Task<V1Alpha1ChromaServer> SetFinalizerAsync(V1Alpha1ChromaServer server, bool present, CancellationToken cancellationToken)
+	private Task<V1Alpha1Chroma> SetFinalizerAsync(V1Alpha1Chroma server, bool present, CancellationToken cancellationToken)
 	{
 		var finalizers = (server.Metadata.Finalizers ?? []).Where(f => f != ClaimFinalizer.Identifier).ToList();
 		if (present)
@@ -348,23 +356,23 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		return client.UpdateAsync(server, cancellationToken);
 	}
 
-	private async Task<V1Pod?> OwnedPodAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
+	private async Task<V1Pod?> OwnedPodAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
 	{
 		var pod = await client.GetAsync<V1Pod>(Resources.InstanceName(server.Name()), server.Namespace(), cancellationToken);
 		return pod is not null && Ownership.IsControlledBy(pod.Metadata, server) ? pod : null;
 	}
 
-	private async Task<ReconciliationResult<V1Alpha1ChromaServer>> WriteStatusAsync(V1Alpha1ChromaServer server, Outcome outcome, CancellationToken cancellationToken)
+	private async Task<ReconciliationResult<V1Alpha1Chroma>> WriteStatusAsync(V1Alpha1Chroma server, Outcome outcome, CancellationToken cancellationToken)
 	{
 		if (!SameStatus(server.Status, outcome.Status))
 		{
 			server.Status = outcome.Status;
 			server = await client.UpdateStatusAsync(server, cancellationToken);
 		}
-		return ReconciliationResult<V1Alpha1ChromaServer>.Success(server, outcome.RequeueAfter);
+		return ReconciliationResult<V1Alpha1Chroma>.Success(server, outcome.RequeueAfter);
 	}
 
-	private async Task<(string? Conflict, string Reason)> EnsureConfigMapAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
+	private async Task<(string? Conflict, string Reason)> EnsureConfigMapAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
 	{
 		var desired = Resources.ConfigMap(server);
 		var current = await client.GetAsync<V1ConfigMap>(desired.Name(), desired.Namespace(), cancellationToken);
@@ -377,7 +385,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		return await WriteAsync("ConfigMap", desired.Name(), () => current is null ? client.CreateAsync(desired, cancellationToken) : client.UpdateAsync(current, cancellationToken));
 	}
 
-	private async Task<(string? Conflict, string Reason)> EnsureServiceAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
+	private async Task<(string? Conflict, string Reason)> EnsureServiceAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
 	{
 		var desired = Resources.Service(server);
 		Ownership.ApplyAnnotations(desired.Metadata, server.Spec.Service?.Annotations);
@@ -417,7 +425,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 	}
 
 	/// <summary>The existing claim of the server, or why it cannot be used; null and null when there is none.</summary>
-	private async Task<(V1PersistentVolumeClaim? Pvc, string? Conflict)> ExistingPvcAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
+	private async Task<(V1PersistentVolumeClaim? Pvc, string? Conflict)> ExistingPvcAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
 	{
 		var current = await client.GetAsync<V1PersistentVolumeClaim>(Resources.InstanceName(server.Name()), server.Namespace(), cancellationToken);
 		if (current is null)
@@ -426,7 +434,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 	}
 
 	/// <summary>Creates the claim; a claim the API refuses, like a size of 0 or a used-up quota, fails the server with the explanation of the API.</summary>
-	private async Task<(V1PersistentVolumeClaim? Pvc, string? Conflict, string Reason)> CreatePvcAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
+	private async Task<(V1PersistentVolumeClaim? Pvc, string? Conflict, string Reason)> CreatePvcAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
 	{
 		var desired = Resources.Pvc(server);
 		var name = server.Metadata.Name;
@@ -443,6 +451,6 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		}
 	}
 
-	private static bool SameStatus(V1Alpha1ChromaServer.ServerStatus? a, V1Alpha1ChromaServer.ServerStatus b) =>
+	private static bool SameStatus(V1Alpha1Chroma.ChromaStatus? a, V1Alpha1Chroma.ChromaStatus b) =>
 		a is not null && KubernetesJson.Serialize(a) == KubernetesJson.Serialize(b);
 }

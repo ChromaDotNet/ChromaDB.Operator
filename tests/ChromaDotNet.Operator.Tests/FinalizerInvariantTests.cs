@@ -15,7 +15,7 @@ using static ChromaDotNet.Operator.Tests.Fixtures;
 namespace ChromaDotNet.Operator.Tests;
 
 /// <summary>
-/// The finalizer is on a ChromaServer when, and only when, the server owns its claim: added before the owner reference, removed after
+/// The finalizer is on a Chroma when, and only when, the server owns its claim: added before the owner reference, removed after
 /// it. A server that owns nothing does not wait for the operator to be deleted, nor does its namespace.
 /// </summary>
 public class FinalizerInvariantTests
@@ -38,8 +38,8 @@ public class FinalizerInvariantTests
 		_client.GetAsync<V1PersistentVolumeClaim>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
 			.Returns(_ => _claim is null ? null : KubernetesJson.Deserialize<V1PersistentVolumeClaim>(KubernetesJson.Serialize(_claim)));
 		_client.UpdateAsync(Arg.Any<V1PersistentVolumeClaim>(), Arg.Any<CancellationToken>()).Returns(call => _claim = call.Arg<V1PersistentVolumeClaim>());
-		_client.UpdateAsync(Arg.Any<V1Alpha1ChromaServer>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1ChromaServer>());
-		_client.UpdateStatusAsync(Arg.Any<V1Alpha1ChromaServer>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1ChromaServer>());
+		_client.UpdateAsync(Arg.Any<V1Alpha1Chroma>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1Chroma>());
+		_client.UpdateStatusAsync(Arg.Any<V1Alpha1Chroma>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1Chroma>());
 	}
 
 	[TearDown]
@@ -47,7 +47,7 @@ public class FinalizerInvariantTests
 
 	[Test]
 	public void IdentifierIsTheOneKubeOpsGives() =>
-		Assert.That(new ClaimFinalizer(_client, NullLogger<ClaimFinalizer>.Instance).GetIdentifierName(Named(Server())), Is.EqualTo(Finalizer));
+		Assert.That(new ClaimFinalizer(_client, NullLogger<ClaimFinalizer>.Instance).GetIdentifierName(Named(NewChroma())), Is.EqualTo(Finalizer));
 
 	// A server with Retain whose claim it does not own: the finalizer, added by an earlier version to every server, goes.
 	[Test]
@@ -56,7 +56,7 @@ public class FinalizerInvariantTests
 		var server = Steady("Retain");
 		server.Metadata.Finalizers = [Finalizer];
 		await Controller().ReconcileAsync(server, CancellationToken.None);
-		await _client.Received(1).UpdateAsync(Arg.Is<V1Alpha1ChromaServer>(s => !s.Finalizers().Contains(Finalizer)), Arg.Any<CancellationToken>());
+		await _client.Received(1).UpdateAsync(Arg.Is<V1Alpha1Chroma>(s => !s.Finalizers().Contains(Finalizer)), Arg.Any<CancellationToken>());
 	}
 
 	// A server with Retain and no finalizer is not written: the steady state.
@@ -64,7 +64,7 @@ public class FinalizerInvariantTests
 	public async Task RetainWithoutTheFinalizerIsNotWritten()
 	{
 		await Controller().ReconcileAsync(Steady("Retain"), CancellationToken.None);
-		await _client.DidNotReceive().UpdateAsync(Arg.Any<V1Alpha1ChromaServer>(), Arg.Any<CancellationToken>());
+		await _client.DidNotReceive().UpdateAsync(Arg.Any<V1Alpha1Chroma>(), Arg.Any<CancellationToken>());
 	}
 
 	// A change to Delete: the finalizer first, then the owner reference on the claim.
@@ -76,7 +76,7 @@ public class FinalizerInvariantTests
 		await Controller().ReconcileAsync(server, CancellationToken.None);
 		Received.InOrder(() =>
 		{
-			_client.UpdateAsync(Arg.Is<V1Alpha1ChromaServer>(s => s.Finalizers().Contains(Finalizer)), Arg.Any<CancellationToken>());
+			_client.UpdateAsync(Arg.Is<V1Alpha1Chroma>(s => s.Finalizers().Contains(Finalizer)), Arg.Any<CancellationToken>());
 			_client.UpdateAsync(Arg.Is<V1PersistentVolumeClaim>(c => c.Metadata.OwnerReferences.Any(o => o.Uid == "uid-1")), Arg.Any<CancellationToken>());
 		});
 	}
@@ -85,12 +85,12 @@ public class FinalizerInvariantTests
 	[Test]
 	public async Task NewServerWithDeleteHasTheFinalizerBeforeItsClaim()
 	{
-		var server = Named(Server());
+		var server = Named(NewChroma());
 		server.Spec.PvcDeletionPolicy = "Delete";
 		await Controller().ReconcileAsync(server, CancellationToken.None);
 		Received.InOrder(() =>
 		{
-			_client.UpdateAsync(Arg.Is<V1Alpha1ChromaServer>(s => s.Finalizers().Contains(Finalizer)), Arg.Any<CancellationToken>());
+			_client.UpdateAsync(Arg.Is<V1Alpha1Chroma>(s => s.Finalizers().Contains(Finalizer)), Arg.Any<CancellationToken>());
 			_client.CreateAsync(Arg.Is<V1PersistentVolumeClaim>(c => c.Metadata.OwnerReferences.Any(o => o.Uid == "uid-1")), Arg.Any<CancellationToken>());
 		});
 	}
@@ -106,7 +106,7 @@ public class FinalizerInvariantTests
 		Received.InOrder(() =>
 		{
 			_client.UpdateAsync(Arg.Is<V1PersistentVolumeClaim>(c => !(c.Metadata.OwnerReferences ?? new List<V1OwnerReference>()).Any(o => o.Uid == "uid-1")), Arg.Any<CancellationToken>());
-			_client.UpdateAsync(Arg.Is<V1Alpha1ChromaServer>(s => !s.Finalizers().Contains(Finalizer)), Arg.Any<CancellationToken>());
+			_client.UpdateAsync(Arg.Is<V1Alpha1Chroma>(s => !s.Finalizers().Contains(Finalizer)), Arg.Any<CancellationToken>());
 		});
 	}
 
@@ -122,15 +122,15 @@ public class FinalizerInvariantTests
 			Response = new HttpResponseMessageWrapper(new HttpResponseMessage(HttpStatusCode.UnprocessableEntity), "claims are frozen"),
 		});
 		await Controller().ReconcileAsync(server, CancellationToken.None);
-		await _client.DidNotReceive().UpdateAsync(Arg.Is<V1Alpha1ChromaServer>(s => !s.Finalizers().Contains(Finalizer)), Arg.Any<CancellationToken>());
+		await _client.DidNotReceive().UpdateAsync(Arg.Is<V1Alpha1Chroma>(s => !s.Finalizers().Contains(Finalizer)), Arg.Any<CancellationToken>());
 	}
 
-	private ChromaServerController Controller() => new(_client, Defaults, NullLogger<ChromaServerController>.Instance);
+	private ChromaController Controller() => new(_client, Defaults, NullLogger<ChromaController>.Instance);
 
 	/// <summary>A ready server of 1.5.9 with its objects, its claim created under the policy given.</summary>
-	private V1Alpha1ChromaServer Steady(string policy)
+	private V1Alpha1Chroma Steady(string policy)
 	{
-		var server = Named(Server(Image159, dataVersion: "1.5.9", runningImage: Image159));
+		var server = Named(NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159));
 		server.Spec.PvcDeletionPolicy = policy;
 		var pod = RunningPod(server, Image159);
 		_claim = Resources.Pvc(server);
@@ -142,10 +142,10 @@ public class FinalizerInvariantTests
 		return server;
 	}
 
-	private static V1Alpha1ChromaServer Named(V1Alpha1ChromaServer server)
+	private static V1Alpha1Chroma Named(V1Alpha1Chroma server)
 	{
 		server.ApiVersion = "chroma.chromadotnet.org/v1alpha1";
-		server.Kind = "ChromaServer";
+		server.Kind = "Chroma";
 		return server;
 	}
 }

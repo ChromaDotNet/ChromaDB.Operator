@@ -50,7 +50,7 @@ public class MainReviewTests
 	[TestCase("false", false)]
 	public void AllowDowngradeTakesOnlyTrue(string value, bool allowed)
 	{
-		var server = Server(Image153, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image153, dataVersion: "1.5.9", runningImage: Image159);
 		server.Metadata.Annotations = new Dictionary<string, string> { [Labels.AllowDowngrade] = value };
 		var outcome = Reconciliation.Decide(server, RunningPod(server, Image159), null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(allowed ? PodAction.Delete : PodAction.None));

@@ -12,7 +12,7 @@ using static ChromaDotNet.Operator.Tests.Fixtures;
 
 namespace ChromaDotNet.Operator.Tests;
 
-/// <summary>The watch of the Pods starts again when it fails or ends, and a change of a Pod puts its ChromaServer in the queue.</summary>
+/// <summary>The watch of the Pods starts again when it fails or ends, and a change of a Pod puts its Chroma in the queue.</summary>
 public class PodWatcherTests
 {
 	[TestCase(true)]
@@ -21,14 +21,14 @@ public class PodWatcherTests
 	public async Task WatchStartsAgainAndQueuesTheServer(bool fails)
 	{
 		using var client = Substitute.For<IKubernetesClient>();
-		var server = Server();
+		var server = NewChroma();
 		var pod = RunningPod(server, Image159);
 		var watches = 0;
 		client.WatchAsync<V1Pod>(Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<bool?>(), Arg.Any<CancellationToken>())
 			.Returns(call => ++watches == 1 ? First(fails) : Then(pod, call.Arg<CancellationToken>()));
-		client.GetAsync<V1Alpha1ChromaServer>("demo", "rag", Arg.Any<CancellationToken>()).Returns(server);
-		var queued = new TaskCompletionSource<V1Alpha1ChromaServer>(TaskCreationOptions.RunContinuationsAsynchronously);
-		EntityQueue<V1Alpha1ChromaServer> queue = (entity, _, _, queueIn, _, _) =>
+		client.GetAsync<V1Alpha1Chroma>("demo", "rag", Arg.Any<CancellationToken>()).Returns(server);
+		var queued = new TaskCompletionSource<V1Alpha1Chroma>(TaskCreationOptions.RunContinuationsAsynchronously);
+		EntityQueue<V1Alpha1Chroma> queue = (entity, _, _, queueIn, _, _) =>
 		{
 			Assert.That(queueIn, Is.EqualTo(TimeSpan.Zero));
 			queued.TrySetResult(entity);
@@ -51,7 +51,7 @@ public class PodWatcherTests
 	{
 		using var client = Substitute.For<IKubernetesClient>();
 		using var elector = new LeaderElector(new LeaderElectionConfig(Substitute.For<ILock>()));
-		EntityQueue<V1Alpha1ChromaServer> queue = (_, _, _, _, _, _) => Task.FromResult(true);
+		EntityQueue<V1Alpha1Chroma> queue = (_, _, _, _, _, _) => Task.FromResult(true);
 		using var watcher = new PodWatcher(client, queue, NullLogger<PodWatcher>.Instance, elector);
 		await watcher.StartAsync(CancellationToken.None);
 		await Task.Delay(TimeSpan.FromSeconds(1));

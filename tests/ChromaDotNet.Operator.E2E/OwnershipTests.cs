@@ -7,7 +7,7 @@ using NUnit.Framework;
 namespace ChromaDotNet.Operator.E2E;
 
 /// <summary>
-/// Objects with the names of those of a ChromaServer that belong to someone else, the owner of the claim against pvcDeletionPolicy,
+/// Objects with the names of those of a Chroma that belong to someone else, the owner of the claim against pvcDeletionPolicy,
 /// the annotations of the Service, and names that would not give valid names to the objects.
 /// </summary>
 public class OwnershipTests
@@ -28,7 +28,7 @@ public class OwnershipTests
 	[TestCase("a234567890123456789012345678901234567890123456789012345678901")]
 	public void NameThatGivesInvalidNamesIsRefusedByTheApi(string name)
 	{
-		var e = Assert.ThrowsAsync<HttpOperationException>(() => _cluster.CreateAsync(TestCluster.NewServer(name, Image159)));
+		var e = Assert.ThrowsAsync<HttpOperationException>(() => _cluster.CreateAsync(TestCluster.NewChroma(name, Image159)));
 		Assert.That(e!.Response.StatusCode, Is.EqualTo(HttpStatusCode.UnprocessableEntity), e.Response.Content);
 	}
 
@@ -41,7 +41,7 @@ public class OwnershipTests
 			Metadata = new V1ObjectMeta { Name = "taken-config", NamespaceProperty = _cluster.Namespace },
 			Data = new Dictionary<string, string> { ["app.yaml"] = "theirs" },
 		}.Initialize());
-		await _cluster.CreateAsync(TestCluster.NewServer("taken", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("taken", Image159));
 		var failed = await _cluster.WaitAsync("taken", s => s.Status?.Phase == "Failed", TimeSpan.FromSeconds(60), "Failed");
 		var ready = failed.Status!.Conditions.Single(c => c.Type == "Ready");
 		Assert.That(ready.Reason, Is.EqualTo("NameConflict"));
@@ -65,13 +65,13 @@ public class OwnershipTests
 			},
 		}.Initialize();
 		await _cluster.Client.CreateAsync(claim);
-		await _cluster.CreateAsync(TestCluster.NewServer("found", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("found", Image159));
 		var failed = await _cluster.WaitAsync("found", s => s.Status?.Phase == "Failed", TimeSpan.FromSeconds(60), "Failed");
 		Assert.That(failed.Status!.Conditions.Single(c => c.Type == "Ready").Message, Does.Contain("label it"));
 		Assert.That(await _cluster.PodAsync("found-1"), Is.Null);
 
 		claim = (await _cluster.Client.GetAsync<V1PersistentVolumeClaim>("found-1", _cluster.Namespace))!;
-		claim.Metadata.Labels = new Dictionary<string, string> { [Labels.Server] = "found", ["app.kubernetes.io/managed-by"] = Labels.ManagedBy };
+		claim.Metadata.Labels = new Dictionary<string, string> { [Labels.Chroma] = "found", ["app.kubernetes.io/managed-by"] = Labels.ManagedBy };
 		await _cluster.Client.UpdateAsync(claim);
 		await _cluster.WaitReadyAsync("found", Image159);
 	}
@@ -80,7 +80,7 @@ public class OwnershipTests
 	[Test]
 	public async Task ClaimOwnerFollowsThePolicy()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("policy", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("policy", Image159));
 		var server = await _cluster.WaitReadyAsync("policy", Image159);
 		Assert.That(await ClaimOwnersAsync(), Is.Empty, "Retain");
 
@@ -89,7 +89,7 @@ public class OwnershipTests
 		await _cluster.UpdateAsync("policy", s => s.Spec.PvcDeletionPolicy = "Retain");
 		await WaitClaimOwnersAsync(owners => owners.Count == 0, "not owned with Retain");
 
-		await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("policy", _cluster.Namespace);
+		await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1Chroma>("policy", _cluster.Namespace);
 		await _cluster.AssertClaimKeptAsync("policy");
 	}
 
@@ -98,7 +98,7 @@ public class OwnershipTests
 	[Test]
 	public async Task PolicyChangedWhileTheOperatorIsStoppedKeepsTheClaim()
 	{
-		var server = TestCluster.NewServer("late", Image159);
+		var server = TestCluster.NewChroma("late", Image159);
 		server.Spec.PvcDeletionPolicy = "Delete";
 		await _cluster.CreateAsync(server);
 		var ready = await _cluster.WaitReadyAsync("late", Image159);
@@ -107,7 +107,7 @@ public class OwnershipTests
 		{
 			await _cluster.ScaleOperatorAsync(0);
 			await _cluster.UpdateAsync("late", s => s.Spec.PvcDeletionPolicy = "Retain");
-			await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("late", _cluster.Namespace);
+			await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1Chroma>("late", _cluster.Namespace);
 			// Without the finalizer the server is gone at once, and the garbage collector deletes the claim it still owns.
 			var waiting = await _cluster.GetAsync("late");
 			Assert.That(waiting?.Metadata.DeletionTimestamp, Is.Not.Null, "the server waits for the operator");
@@ -117,7 +117,7 @@ public class OwnershipTests
 		{
 			await _cluster.ScaleOperatorAsync(1);
 		}
-		await _cluster.WaitGoneAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("late");
+		await _cluster.WaitGoneAsync<ChromaDotNet.Operator.Entities.V1Alpha1Chroma>("late");
 		await _cluster.AssertClaimKeptAsync("late");
 	}
 
@@ -126,8 +126,8 @@ public class OwnershipTests
 	[Test]
 	public async Task OnlyAServerThatOwnsItsClaimWaitsForTheOperator()
 	{
-		var keep = TestCluster.NewServer("keep", Image159);
-		var drop = TestCluster.NewServer("drop", Image159);
+		var keep = TestCluster.NewChroma("keep", Image159);
+		var drop = TestCluster.NewChroma("drop", Image159);
 		drop.Spec.PvcDeletionPolicy = "Delete";
 		await _cluster.CreateAsync(keep);
 		await _cluster.CreateAsync(drop);
@@ -136,8 +136,8 @@ public class OwnershipTests
 		try
 		{
 			await _cluster.ScaleOperatorAsync(0);
-			await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("keep", _cluster.Namespace);
-			await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("drop", _cluster.Namespace);
+			await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1Chroma>("keep", _cluster.Namespace);
+			await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1Chroma>("drop", _cluster.Namespace);
 			Assert.That(await _cluster.GetAsync("keep"), Is.Null, "Retain: deleted at once");
 			await _cluster.AssertClaimKeptAsync("keep");
 			Assert.That((await _cluster.GetAsync("drop"))?.Metadata.DeletionTimestamp, Is.Not.Null, "Delete: waits for the operator");
@@ -146,7 +146,7 @@ public class OwnershipTests
 		{
 			await _cluster.ScaleOperatorAsync(1);
 		}
-		await _cluster.WaitGoneAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("drop");
+		await _cluster.WaitGoneAsync<ChromaDotNet.Operator.Entities.V1Alpha1Chroma>("drop");
 		await _cluster.WaitGoneAsync<V1PersistentVolumeClaim>("drop-1");
 	}
 
@@ -155,7 +155,7 @@ public class OwnershipTests
 	[Test]
 	public async Task PolicyReachesTheClaimWhileAnotherObjectBlocksTheServer()
 	{
-		var server = TestCluster.NewServer("blocked", Image159);
+		var server = TestCluster.NewChroma("blocked", Image159);
 		server.Spec.PvcDeletionPolicy = "Delete";
 		await _cluster.CreateAsync(server);
 		await _cluster.WaitReadyAsync("blocked", Image159);
@@ -175,8 +175,8 @@ public class OwnershipTests
 				Assert.Fail("the claim is still owned by the server");
 			await Task.Delay(500);
 		}
-		await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("blocked", _cluster.Namespace);
-		await _cluster.WaitGoneAsync<ChromaDotNet.Operator.Entities.V1Alpha1ChromaServer>("blocked");
+		await _cluster.Client.DeleteAsync<ChromaDotNet.Operator.Entities.V1Alpha1Chroma>("blocked", _cluster.Namespace);
+		await _cluster.WaitGoneAsync<ChromaDotNet.Operator.Entities.V1Alpha1Chroma>("blocked");
 		// The Service of someone else stays: only the Pod and the ConfigMap were the server's.
 		await _cluster.WaitGoneAsync<V1Pod>("blocked-1");
 		await _cluster.WaitGoneAsync<V1ConfigMap>("blocked-config");
@@ -190,7 +190,7 @@ public class OwnershipTests
 	[Test]
 	public async Task RefusedServiceUpdateDoesNotStopThePolicy()
 	{
-		var server = TestCluster.NewServer("refused", Image159);
+		var server = TestCluster.NewChroma("refused", Image159);
 		server.Spec.PvcDeletionPolicy = "Delete";
 		await _cluster.CreateAsync(server);
 		await _cluster.WaitReadyAsync("refused", Image159);
@@ -213,7 +213,7 @@ public class OwnershipTests
 	[Test]
 	public async Task RefusedClaimFailsTheServer()
 	{
-		var server = TestCluster.NewServer("zero", Image159);
+		var server = TestCluster.NewChroma("zero", Image159);
 		server.Spec.Storage.Size = "0Gi";
 		await _cluster.CreateAsync(server);
 		var failed = await _cluster.WaitAsync("zero", s => s.Status?.Phase == "Failed", TimeSpan.FromSeconds(60), "Failed");
@@ -233,7 +233,7 @@ public class OwnershipTests
 			Spec = new V1ResourceQuotaSpec { Hard = new Dictionary<string, ResourceQuantity> { [resource] = new("0") } },
 		}.Initialize());
 		await Task.Delay(TimeSpan.FromSeconds(2));
-		await _cluster.CreateAsync(TestCluster.NewServer("quota", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("quota", Image159));
 		var failed = await _cluster.WaitAsync("quota", s => s.Status?.Phase == "Failed", TimeSpan.FromSeconds(60), "Failed");
 		var ready = failed.Status!.Conditions.Single(c => c.Type == "Ready");
 		Assert.That(ready.Reason, Is.EqualTo(reason));
@@ -244,7 +244,7 @@ public class OwnershipTests
 	[Test]
 	public async Task RefusedReplacementKeepsTheRunningPod()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("keep", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("keep", Image159));
 		await _cluster.WaitReadyAsync("keep", Image159);
 		var pod = (await _cluster.PodAsync("keep-1"))!;
 		await _cluster.UpdateAsync("keep", s => s.Spec.Resources = new V1ResourceRequirements
@@ -262,14 +262,14 @@ public class OwnershipTests
 		Assert.That(still.Metadata.DeletionTimestamp, Is.Null);
 		Assert.That(Reconciliation.IsReady(still), Is.True);
 
-		await _cluster.UpdateAsync("keep", s => s.Spec.Resources = TestCluster.NewServer("x", Image159).Spec.Resources);
+		await _cluster.UpdateAsync("keep", s => s.Spec.Resources = TestCluster.NewChroma("x", Image159).Spec.Resources);
 		await _cluster.WaitAsync("keep", s => s.Status?.Phase == "Ready" && s.Status.ObservedGeneration == s.Metadata.Generation, what: "Ready again");
 	}
 
 	[Test]
 	public async Task RefusedPodFailsTheServer()
 	{
-		var server = TestCluster.NewServer("greedy", Image159);
+		var server = TestCluster.NewChroma("greedy", Image159);
 		server.Spec.Resources = new V1ResourceRequirements
 		{
 			Requests = new Dictionary<string, ResourceQuantity> { ["cpu"] = new("2") },
@@ -287,7 +287,7 @@ public class OwnershipTests
 	public async Task FailedPassesRecordTheVersionOfThePod()
 	{
 		const string image153 = "docker.io/chromadb/chroma:1.5.3";
-		await _cluster.CreateAsync(TestCluster.NewServer("record", image153));
+		await _cluster.CreateAsync(TestCluster.NewChroma("record", image153));
 		await _cluster.WaitReadyAsync("record", image153);
 		await _cluster.UpdateAsync("record", s => s.Spec.Service = new() { Annotations = new Dictionary<string, string> { ["bad key"] = "x" } });
 		await _cluster.WaitAsync("record", s => s.Status?.Conditions.Any(c => c.Reason == "ServiceRefused") == true, TimeSpan.FromSeconds(60), "ServiceRefused");
@@ -325,7 +325,7 @@ public class OwnershipTests
 	{
 		const string image153 = "docker.io/chromadb/chroma:1.5.3";
 		var policyName = "chroma-e2e-freeze-" + _cluster.Namespace;
-		await _cluster.CreateAsync(TestCluster.NewServer("frozen", image153));
+		await _cluster.CreateAsync(TestCluster.NewChroma("frozen", image153));
 		await _cluster.WaitReadyAsync("frozen", image153);
 		try
 		{
@@ -396,7 +396,7 @@ public class OwnershipTests
 	[Test]
 	public async Task PodEditedToAnImageWithoutAVersionStopsTheServer()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("unknown", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("unknown", Image159));
 		await _cluster.WaitReadyAsync("unknown", Image159);
 		var pod = (await _cluster.PodAsync("unknown-1"))!;
 		pod.Spec.Containers.Single(c => c.Name == "chroma").Image = "docker.io/chromadb/chroma:unversioned-for-test";
@@ -426,7 +426,7 @@ public class OwnershipTests
 	[Test]
 	public async Task ServiceRoutingIsRestored()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("routes", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("routes", Image159));
 		await _cluster.WaitReadyAsync("routes", Image159);
 		var service = (await _cluster.Client.GetAsync<V1Service>("routes-rw", _cluster.Namespace))!;
 		service.Spec.Selector = new Dictionary<string, string> { ["app"] = "other" };
@@ -438,8 +438,8 @@ public class OwnershipTests
 			await Task.Delay(1000);
 			service = (await _cluster.Client.GetAsync<V1Service>("routes-rw", _cluster.Namespace))!;
 		}
-		while (service.Spec.Selector?.ContainsKey(Labels.Server) != true && watch.Elapsed < TimeSpan.FromSeconds(90));
-		Assert.That(service.Spec.Selector, Is.EqualTo(new Dictionary<string, string> { [Labels.Server] = "routes" }));
+		while (service.Spec.Selector?.ContainsKey(Labels.Chroma) != true && watch.Elapsed < TimeSpan.FromSeconds(90));
+		Assert.That(service.Spec.Selector, Is.EqualTo(new Dictionary<string, string> { [Labels.Chroma] = "routes" }));
 		Assert.That(service.Spec.Ports.Single().TargetPort.Value, Is.EqualTo("http"));
 		TestContext.Out.WriteLine($"routes: restored after {watch.Elapsed.TotalSeconds:0} s");
 	}
@@ -449,13 +449,13 @@ public class OwnershipTests
 	[TestCase("other")]
 	public async Task LabelOfThePodIsRestored(string? value)
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("labels", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("labels", Image159));
 		await _cluster.WaitReadyAsync("labels", Image159);
 		var pod = (await _cluster.PodAsync("labels-1"))!;
 		if (value is null)
-			pod.Metadata.Labels.Remove(Labels.Server);
+			pod.Metadata.Labels.Remove(Labels.Chroma);
 		else
-			pod.Metadata.Labels[Labels.Server] = value;
+			pod.Metadata.Labels[Labels.Chroma] = value;
 		await _cluster.Client.UpdateAsync(pod);
 		var watch = System.Diagnostics.Stopwatch.StartNew();
 		V1Pod now;
@@ -464,8 +464,8 @@ public class OwnershipTests
 			await Task.Delay(500);
 			now = (await _cluster.PodAsync("labels-1"))!;
 		}
-		while ((now.Metadata.Labels?.TryGetValue(Labels.Server, out var label) != true || label != "labels") && watch.Elapsed < TimeSpan.FromSeconds(60));
-		Assert.That(now.Metadata.Labels?[Labels.Server], Is.EqualTo("labels"));
+		while ((now.Metadata.Labels?.TryGetValue(Labels.Chroma, out var label) != true || label != "labels") && watch.Elapsed < TimeSpan.FromSeconds(60));
+		Assert.That(now.Metadata.Labels?[Labels.Chroma], Is.EqualTo("labels"));
 		Assert.That(now.Uid(), Is.EqualTo(pod.Uid()), "the same Pod");
 		TestContext.Out.WriteLine($"labels: restored after {watch.Elapsed.TotalSeconds:0.0} s");
 		Assert.That(watch.Elapsed, Is.LessThan(TimeSpan.FromSeconds(10)), "the watch of the Pods finds the server by the owner");
@@ -475,7 +475,7 @@ public class OwnershipTests
 	[Test]
 	public async Task PodImageChangedByHandIsReplaced()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("edited", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("edited", Image159));
 		await _cluster.WaitReadyAsync("edited", Image159);
 		var pod = (await _cluster.PodAsync("edited-1"))!;
 		pod.Spec.Containers[0].Image = "docker.io/chromadb/chroma:1.5.3";
@@ -497,7 +497,7 @@ public class OwnershipTests
 	[Test]
 	public async Task ServiceAnnotationsFollowTheSpec()
 	{
-		var server = TestCluster.NewServer("notes", Image159);
+		var server = TestCluster.NewChroma("notes", Image159);
 		server.Spec.Service = new() { Annotations = new Dictionary<string, string> { ["example.com/a"] = "1", ["example.com/b"] = "2" } };
 		await _cluster.CreateAsync(server);
 		await _cluster.WaitReadyAsync("notes", Image159);

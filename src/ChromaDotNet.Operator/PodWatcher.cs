@@ -11,12 +11,12 @@ using Microsoft.Extensions.Logging;
 namespace ChromaDotNet.Operator;
 
 /// <summary>
-/// Watches the Pods of the operator and puts their ChromaServer in the queue at once when one changes: a Pod deleted, ready, or
-/// failing. The watcher of KubeOps follows the ChromaServers only, and the periodic pass comes every 30 seconds when the server is
+/// Watches the Pods of the operator and puts their Chroma in the queue at once when one changes: a Pod deleted, ready, or
+/// failing. The watcher of KubeOps follows the Chroma resources only, and the periodic pass comes every 30 seconds when the server is
 /// ready: without this watch, a Pod deleted by hand stayed missing for up to that long. With leader election only the leader watches:
 /// the queue of another replica takes nothing, and the watch would only load the API.
 /// </summary>
-internal sealed partial class PodWatcher(IKubernetesClient client, EntityQueue<V1Alpha1ChromaServer> queue, ILogger<PodWatcher> logger,
+internal sealed partial class PodWatcher(IKubernetesClient client, EntityQueue<V1Alpha1Chroma> queue, ILogger<PodWatcher> logger,
 	LeaderElector? elector = null)
 	: BackgroundService
 {
@@ -42,10 +42,10 @@ internal sealed partial class PodWatcher(IKubernetesClient client, EntityQueue<V
 				await foreach (var (_, pod) in client.WatchAsync<V1Pod>(labelSelector: Selector, cancellationToken: leading.Token))
 				{
 					// The server puts back a label removed or changed by hand at once.
-					var name = ServerOf(pod);
+					var name = ChromaOf(pod);
 					if (name is null)
 						continue;
-					var server = await client.GetAsync<V1Alpha1ChromaServer>(name, pod.Metadata.NamespaceProperty, leading.Token);
+					var server = await client.GetAsync<V1Alpha1Chroma>(name, pod.Metadata.NamespaceProperty, leading.Token);
 					if (server is not null)
 						await queue(server, ReconciliationType.Modified, ReconciliationTriggerSource.Operator, TimeSpan.Zero, 0, leading.Token);
 				}
@@ -69,10 +69,14 @@ internal sealed partial class PodWatcher(IKubernetesClient client, EntityQueue<V
 		}
 	}
 
-	/// <summary>The ChromaServer of a Pod: its controller, which a label changed by hand cannot alter; the label only without one.</summary>
-	public static string? ServerOf(V1Pod pod) =>
-		pod.Metadata.OwnerReferences?.FirstOrDefault(o => o.Controller == true && o.Kind == "ChromaServer")?.Name
-		?? (pod.Metadata.Labels?.TryGetValue(Labels.Server, out var label) == true ? label : null);
+	/// <summary>
+	/// The Chroma of a Pod: its controller, which a label changed by hand cannot alter, of this group only (another operator can have a
+	/// kind Chroma); the label only without one.
+	/// </summary>
+	public static string? ChromaOf(V1Pod pod) =>
+		pod.Metadata.OwnerReferences?.FirstOrDefault(o => o.Controller == true && o.Kind == V1Alpha1Chroma.KindName
+			&& o.ApiVersion?.StartsWith(Labels.Group + "/", StringComparison.Ordinal) == true)?.Name
+		?? (pod.Metadata.Labels?.TryGetValue(Labels.Chroma, out var label) == true ? label : null);
 
 	[LoggerMessage(EventId = 10, Level = LogLevel.Warning, Message = "The watch of the Pods ended; it starts again in 2 seconds.")]
 	private static partial void WatchFailed(ILogger logger, Exception exception);
