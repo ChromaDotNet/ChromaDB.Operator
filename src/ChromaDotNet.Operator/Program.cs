@@ -1,17 +1,27 @@
 using ChromaDotNet.Operator;
 using KubeOps.Abstractions.Builder;
 using KubeOps.Operator;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateSlimBuilder(args);
 builder.Services.AddSingleton(OperatorOptions.From(builder.Configuration));
-// The controller puts the finalizer of the claim on a ChromaServer only while the server owns its claim (ClaimFinalizer).
 builder.Services
-	.AddKubernetesOperator(settings => settings.WithAutoAttachFinalizers(false))
+	.AddKubernetesOperator(settings =>
+	{
+		// One operator works at a time, the holder of the Lease chroma-operator-leader in its namespace (POD_NAMESPACE): during an
+		// update, or with a Pod left on a node that was lost, another one waits.
+		settings.Name = "chroma-operator";
+		settings.WithLeaderElection(LeaderElectionType.Single);
+		// The controller puts the finalizer of the claim on a ChromaServer only while the server owns its claim (ClaimFinalizer).
+		settings.WithAutoAttachFinalizers(false);
+	})
 	.RegisterComponents();
 // The Pods change outside the watch of KubeOps, which follows the ChromaServers: their changes put the server in the queue at once.
 builder.Services.AddHostedService<PodWatcher>();
+// The probes of the Deployment: the process answers on ASPNETCORE_HTTP_PORTS.
+builder.Services.AddHealthChecks();
 
-using var host = builder.Build();
-await host.RunAsync();
+await using var app = builder.Build();
+app.MapHealthChecks("/healthz");
+await app.RunAsync();

@@ -16,8 +16,11 @@ internal static partial class Log
 	[LoggerMessage(EventId = 4, Level = LogLevel.Information, Message = "{Server}: deleted.")]
 	public static partial void Deleted(ILogger logger, string server);
 
-	[LoggerMessage(EventId = 5, Level = LogLevel.Error, Message = "{Server}: the API answered {Status}: {Body}")]
-	public static partial void ApiError(ILogger logger, Exception exception, string server, System.Net.HttpStatusCode status, string? body);
+	[LoggerMessage(EventId = 11, Level = LogLevel.Warning, Message = "{Server}: the API refused the image it admitted on Pod {Pod}, which the next pass will take for an edit: {Body}")]
+	public static partial void AdmittedImageRefused(ILogger logger, string server, string pod, string? body);
+
+	[LoggerMessage(EventId = 9, Level = LogLevel.Error, Message = "{Server}: the pass failed ({Reason}); the next one in {Seconds} seconds: {Message}")]
+	public static partial void PassFailed(ILogger logger, Exception exception, string server, string reason, double seconds, string message);
 
 	[LoggerMessage(EventId = 6, Level = LogLevel.Information, Message = "{Server}: deleted with pvcDeletionPolicy Retain: PersistentVolumeClaim {Pvc} no longer has it as owner, and stays.")]
 	public static partial void ClaimReleased(ILogger logger, string server, string pvc);

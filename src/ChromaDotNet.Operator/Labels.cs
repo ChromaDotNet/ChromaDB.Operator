@@ -32,6 +32,12 @@ internal static class Labels
 	/// <summary>On the claim, the code of the incident when an image without a version ran on the data.</summary>
 	public const string ClaimDataVersionUnknown = Group + "/data-version-unknown";
 
+	/// <summary>
+	/// On the Pod, the image the API admitted at its creation, when a mutating webhook rewrote the one the operator asked for: a Pod that
+	/// runs it is the one the operator created.
+	/// </summary>
+	public const string AdmittedImage = Group + "/admitted-image";
+
 	public const string ManagedBy = "chroma-operator";
 
 	public static Dictionary<string, string> For(string server) => new()

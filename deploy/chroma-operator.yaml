@@ -275,6 +275,23 @@ metadata:
   namespace: chroma-operator-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    operator: chroma-operator
+  name: chroma-operator-leader-election
+  namespace: chroma-operator-system
+rules:
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - create
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
@@ -328,6 +345,22 @@ rules:
   - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    operator: chroma-operator
+  name: chroma-operator-leader-election
+  namespace: chroma-operator-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: chroma-operator-leader-election
+subjects:
+- kind: ServiceAccount
+  name: chroma-operator
+  namespace: chroma-operator-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
@@ -357,6 +390,8 @@ spec:
     matchLabels:
       operator: chroma-operator
       operator-deployment: kubernetes-operator
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
@@ -369,13 +404,30 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: ASPNETCORE_HTTP_PORTS
+          value: "8080"
         - name: CHROMA_DEFAULT_IMAGE
           value: docker.io/chromadb/chroma:1.5.9
         - name: CHROMA_ALLOWED_IMAGES
           value: docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma
         image: ghcr.io/chromadotnet/chroma-operator:dev
         imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: health
+          periodSeconds: 10
         name: operator
+        ports:
+        - containerPort: 8080
+          name: health
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          periodSeconds: 5
         resources:
           limits:
             cpu: 100m

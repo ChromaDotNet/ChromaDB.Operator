@@ -1,5 +1,6 @@
 using ChromaDotNet.Operator.Entities;
 using k8s;
+using k8s.LeaderElection;
 using k8s.Models;
 using KubeOps.Abstractions.Reconciliation;
 using KubeOps.Abstractions.Reconciliation.Queue;
@@ -12,40 +13,58 @@ namespace ChromaDotNet.Operator;
 /// <summary>
 /// Watches the Pods of the operator and puts their ChromaServer in the queue at once when one changes: a Pod deleted, ready, or
 /// failing. The watcher of KubeOps follows the ChromaServers only, and the periodic pass comes every 30 seconds when the server is
-/// ready: without this watch, a Pod deleted by hand stayed missing for up to that long.
+/// ready: without this watch, a Pod deleted by hand stayed missing for up to that long. With leader election only the leader watches:
+/// the queue of another replica takes nothing, and the watch would only load the API.
 /// </summary>
-internal sealed partial class PodWatcher(IKubernetesClient client, EntityQueue<V1Alpha1ChromaServer> queue, ILogger<PodWatcher> logger)
+internal sealed partial class PodWatcher(IKubernetesClient client, EntityQueue<V1Alpha1ChromaServer> queue, ILogger<PodWatcher> logger,
+	LeaderElector? elector = null)
 	: BackgroundService
 {
 	private static readonly string Selector = $"app.kubernetes.io/managed-by={Labels.ManagedBy}";
+	private static readonly TimeSpan Pause = TimeSpan.FromSeconds(2);
 
 	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 	{
 		while (!stoppingToken.IsCancellationRequested)
 		{
+			if (elector?.IsLeader() == false)
+			{
+				await Task.Delay(Pause, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
+				continue;
+			}
+			// The watch ends when the leadership goes.
+			using var leading = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+			void Stop() => leading.Cancel();
+			if (elector is not null)
+				elector.OnStoppedLeading += Stop;
 			try
 			{
-				await foreach (var (_, pod) in client.WatchAsync<V1Pod>(labelSelector: Selector, cancellationToken: stoppingToken))
+				await foreach (var (_, pod) in client.WatchAsync<V1Pod>(labelSelector: Selector, cancellationToken: leading.Token))
 				{
 					// The server puts back a label removed or changed by hand at once.
 					var name = ServerOf(pod);
 					if (name is null)
 						continue;
-					var server = await client.GetAsync<V1Alpha1ChromaServer>(name, pod.Metadata.NamespaceProperty, stoppingToken);
+					var server = await client.GetAsync<V1Alpha1ChromaServer>(name, pod.Metadata.NamespaceProperty, leading.Token);
 					if (server is not null)
-						await queue(server, ReconciliationType.Modified, ReconciliationTriggerSource.Operator, TimeSpan.Zero, 0, stoppingToken);
+						await queue(server, ReconciliationType.Modified, ReconciliationTriggerSource.Operator, TimeSpan.Zero, 0, leading.Token);
 				}
 			}
-			catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+			catch (OperationCanceledException) when (leading.IsCancellationRequested)
 			{
-				return;
+				// The operator stops, or another replica leads now.
 			}
 			catch (Exception e) when (!stoppingToken.IsCancellationRequested)
 			{
 				// Any failure of the watch, a timeout or an empty answer among them, starts it again: an exception that left this method
 				// would stop the operator.
 				WatchFailed(logger, e);
-				await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+				await Task.Delay(Pause, stoppingToken).ContinueWith(_ => { }, TaskScheduler.Default);
+			}
+			finally
+			{
+				if (elector is not null)
+					elector.OnStoppedLeading -= Stop;
 			}
 		}
 	}

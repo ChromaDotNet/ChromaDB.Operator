@@ -1,0 +1,28 @@
+# The Lease of the leader election, in the namespace of the operator: one operator works at a time.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chroma-operator-leader-election
+  namespace: chroma-operator-system
+  labels:
+    operator: chroma-operator
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, create, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chroma-operator-leader-election
+  namespace: chroma-operator-system
+  labels:
+    operator: chroma-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: chroma-operator-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: chroma-operator
+    namespace: chroma-operator-system

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using ChromaDotNet.Operator.Entities;
 using k8s;
@@ -30,8 +31,64 @@ namespace ChromaDotNet.Operator.Controllers;
 public sealed class ChromaServerController(IKubernetesClient client, OperatorOptions options, ILogger<ChromaServerController> logger)
 	: IEntityController<V1Alpha1ChromaServer>
 {
+	public static readonly TimeSpan FirstRetry = TimeSpan.FromSeconds(10);
+	public static readonly TimeSpan LastRetry = TimeSpan.FromMinutes(5);
 
+	/// <summary>The passes that failed in a row, by UID of the server: the delay before the next one doubles with each.</summary>
+	private static readonly ConcurrentDictionary<string, int> Failures = new();
+
+	/// <summary>
+	/// A pass. One that fails for another reason than the server, like an answer 500 of the API or no answer at all, does not throw: an
+	/// exception would be retried by KubeOps a few times, then dropped, and the server would not be reconciled until its next change. It
+	/// comes back after 10 seconds, then 20, 40, up to 5 minutes, and the condition Reconciled says why, if the API takes the status.
+	/// </summary>
 	public async Task<ReconciliationResult<V1Alpha1ChromaServer>> ReconcileAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
+	{
+		try
+		{
+			var result = await PassAsync(server, cancellationToken);
+			Failures.TryRemove(server.Uid(), out _);
+			// A pass that failed set Reconciled to False; this one went through, Pod included.
+			if (result.Entity.Status?.Conditions.FirstOrDefault(c => c.Type == "Reconciled") is { Status: "False" })
+			{
+				Reconciliation.SetCondition(result.Entity.Status, "Reconciled", true, "Succeeded", "", DateTime.UtcNow);
+				return ReconciliationResult<V1Alpha1ChromaServer>.Success(await client.UpdateStatusAsync(result.Entity, cancellationToken), result.RequeueAfter);
+			}
+			return result;
+		}
+		catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+		{
+			return await FailedAsync(server, e, cancellationToken);
+		}
+	}
+
+	private async Task<ReconciliationResult<V1Alpha1ChromaServer>> FailedAsync(V1Alpha1ChromaServer server, Exception e, CancellationToken cancellationToken)
+	{
+		var name = server.Name();
+		var failures = Failures.AddOrUpdate(server.Uid(), 1, (_, n) => n + 1);
+		var delay = TimeSpan.FromTicks(Math.Min(LastRetry.Ticks, FirstRetry.Ticks << Math.Min(failures - 1, 16)));
+		var (reason, message) = e is HttpOperationException http
+			? ("ApiError", $"The API answered {(int)http.Response.StatusCode} {http.Response.StatusCode}: {http.Response.Content}")
+			: ("Error", $"{e.GetType().Name}: {e.Message}");
+		var seconds = delay.TotalSeconds;
+		Log.PassFailed(logger, e, name, reason, seconds, message);
+		try
+		{
+			// The pass may have written the server: its copy here is out of date.
+			var current = await client.GetAsync<V1Alpha1ChromaServer>(name, server.Namespace(), cancellationToken) ?? server;
+			var status = current.Status ?? new V1Alpha1ChromaServer.ServerStatus();
+			Reconciliation.SetCondition(status, "Reconciled", false, reason, message, DateTime.UtcNow);
+			current.Status = status;
+			await client.UpdateStatusAsync(current, cancellationToken);
+		}
+		catch (Exception) when (!cancellationToken.IsCancellationRequested)
+		{
+			// The status could not be written either, as when the API does not answer: the log has the reason.
+		}
+		return ReconciliationResult<V1Alpha1ChromaServer>.Failure(server, message, e, delay);
+	}
+
+	private async Task<ReconciliationResult<V1Alpha1ChromaServer>> PassAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
 	{
 		var name = server.Name();
 		try
@@ -111,8 +168,13 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 					var image = desired.Spec.Containers[0].Image;
 					Log.CreatingPod(logger, name, created, image);
 					// A Pod the API refuses, like requests above the limits, fails the server with the explanation of the API.
-					if (await WriteAsync("Pod", created, () => client.CreateAsync(desired, cancellationToken), conflictIsFailure: false) is ({ } refused, var refusedReason))
+					V1Pod? admitted = null;
+					if (await WriteAsync("Pod", created, async () => admitted = await client.CreateAsync(desired, cancellationToken), conflictIsFailure: false) is ({ } refused, var refusedReason))
 						return await WriteStatusAsync(server, Reconciliation.Conflict(server, refused, DateTime.UtcNow, refusedReason, null, null, options), cancellationToken);
+					// A mutating webhook rewrote the image, like a mirror or a policy that adds a digest: the Pod keeps the image the API
+					// admitted, so that the next passes tell it from an edit by hand and do not replace it again and again.
+					if (ImageOf(admitted) is { } admittedImage && admittedImage != image)
+						await RecordAdmittedImageAsync(name, admitted!, admittedImage, cancellationToken);
 					break;
 				case PodAction.Delete when pod is not null:
 					// The replacement is checked first by the API, without being created: a Pod it would refuse as invalid, like requests
@@ -141,13 +203,6 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 			// The namespace is being deleted, with the ChromaServer in it: nothing more to create there.
 			return ReconciliationResult<V1Alpha1ChromaServer>.Success(server);
 		}
-		catch (HttpOperationException e)
-		{
-			var status = e.Response.StatusCode;
-			var body = e.Response.Content;
-			Log.ApiError(logger, e, name, status, body);
-			return ReconciliationResult<V1Alpha1ChromaServer>.Failure(server, e.Response.Content ?? e.Message, e, TimeSpan.FromSeconds(10));
-		}
 	}
 
 	public Task<ReconciliationResult<V1Alpha1ChromaServer>> DeletedAsync(V1Alpha1ChromaServer server, CancellationToken cancellationToken)
@@ -156,6 +211,7 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		// claim too with pvcDeletionPolicy Delete, once a pass has made the server its owner. With Retain the claim stays, with the data:
 		// the passes remove the server from its owners, and ClaimFinalizer does it at the deletion for a change no pass applied yet.
 		var name = server.Metadata.Name;
+		Failures.TryRemove(server.Uid(), out _);
 		Log.Deleted(logger, name);
 		return Task.FromResult(ReconciliationResult<V1Alpha1ChromaServer>.Success(server));
 	}
@@ -241,6 +297,43 @@ public sealed class ChromaServerController(IKubernetesClient client, OperatorOpt
 		catch (HttpOperationException e) when (ApiWrites.IsRefusal(e))
 		{
 			return (value, $"The API refused the update of the {kind} {value.Name()}: {e.Response.Content}", kind + "Refused");
+		}
+	}
+
+	private static string? ImageOf(V1Pod? pod) => pod?.Spec?.Containers?.FirstOrDefault(c => c.Name == Resources.ContainerName)?.Image;
+
+	/// <summary>
+	/// Writes on the Pod just created the image the API admitted. A Pod changed meanwhile (409), as at its binding to a node, is read
+	/// again, a few times; a Pod whose image is no longer the admitted one was edited, and is not marked.
+	/// </summary>
+	private async Task RecordAdmittedImageAsync(string server, V1Pod pod, string admittedImage, CancellationToken cancellationToken)
+	{
+		for (var attempt = 1; attempt <= ApiWrites.Attempts; attempt++)
+		{
+			if (attempt > 1)
+			{
+				var fresh = await client.GetAsync<V1Pod>(pod.Name(), pod.Namespace(), cancellationToken);
+				if (fresh is null || fresh.Uid() != pod.Uid() || ImageOf(fresh) != admittedImage)
+					return;
+				pod = fresh;
+			}
+			pod.Metadata.Annotations ??= new Dictionary<string, string>();
+			pod.Metadata.Annotations[Labels.AdmittedImage] = admittedImage;
+			try
+			{
+				await client.UpdateAsync(pod, cancellationToken);
+				return;
+			}
+			catch (HttpOperationException e) when (e.Response.StatusCode == HttpStatusCode.Conflict)
+			{
+			}
+			catch (HttpOperationException e) when (ApiWrites.IsRefusal(e))
+			{
+				var podName = pod.Name();
+				var body = e.Response.Content;
+				Log.AdmittedImageRefused(logger, server, podName, body);
+				return;
+			}
 		}
 	}
 

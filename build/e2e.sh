@@ -26,6 +26,14 @@ docker build -q -t ghcr.io/chromadotnet/chroma-operator:dev . >/dev/null
 for image in chromadb/chroma:1.5.3 chromadb/chroma:1.5.9; do docker image inspect "$image" >/dev/null 2>&1 || docker pull -q "$image" >/dev/null; done
 MSYS_NO_PATHCONV=1 k3d image import -c "$cluster" ghcr.io/chromadotnet/chroma-operator:dev chromadb/chroma:1.5.3 chromadb/chroma:1.5.9 >/dev/null
 
+# Kyverno, for the test of a mutating webhook that rewrites the image of the Pods: installed once, with its admission controller only.
+if ! k get crd policies.kyverno.io >/dev/null 2>&1; then
+  "${HELM:-helm}" --kubeconfig "$CHROMA_OPERATOR_KUBECONFIG" --kube-context "$CHROMA_OPERATOR_CONTEXT" upgrade --install kyverno kyverno \
+    --repo https://kyverno.github.io/kyverno/ --version 3.5.2 -n kyverno --create-namespace --set admissionController.replicas=1 \
+    --set backgroundController.enabled=false --set cleanupController.enabled=false --set reportsController.enabled=false \
+    --wait --timeout 6m >/dev/null
+fi
+
 k apply -f deploy/chroma-operator.yaml >/dev/null
 # A test stops the operator for a while: one replica again, also when an earlier run stopped before it put the operator back, and at
 # the end of this run.
