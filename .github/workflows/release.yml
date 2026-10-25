@@ -33,7 +33,9 @@ jobs:
         id: image
         run: |
           version=${GITHUB_REF_NAME#v}
+          description="A Kubernetes operator for Chroma, written in .NET. Independent project. Not affiliated with, endorsed by or sponsored by Chroma Inc. CHROMA is a registered trademark of Chroma Inc., used here only to describe compatibility."
           docker buildx build --platform linux/amd64,linux/arm64 --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.description=$description" --annotation "index:org.opencontainers.image.description=$description" \
             --label "org.opencontainers.image.version=$version" -t "ghcr.io/chromadotnet/chroma-operator:$version" --push \
             --metadata-file "$RUNNER_TEMP/metadata.json" .
           echo "digest=$(jq -r '.["containerimage.digest"]' "$RUNNER_TEMP/metadata.json")" >> "$GITHUB_OUTPUT"
