@@ -12,8 +12,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: 10.0.x
       - run: dotnet build ChromaDB.Operator.slnx -c Release
@@ -31,14 +31,33 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: 10.0.x
-      - name: A k3d cluster
+      - name: Machine
+        # The CPU of the runner, for the end-to-end results: the model and the AVX-512 flags the images of Chroma may use.
         run: |
-          curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/v5.8.3/install.sh | TAG=v5.8.3 bash
+          lscpu | grep -E "^(Model name|CPU\(s\)):" || true
+          flags=$(grep -m1 "^flags" /proc/cpuinfo | tr " " "\n" | grep "^avx512" | sort -u | tr "\n" " ") || true
+          echo "avx512: ${flags:-none}"
+      - name: A k3d cluster
+        env:
+          # The binary of the k3d release, checked against the checksums.txt of that release.
+          K3D_VERSION: v5.8.3
+          K3D_SHA256: dbaa79a76ace7f4ca230a1ff41dc7d8a5036a8ad0309e9c54f9bf3836dbe853e
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/k3d" "https://github.com/k3d-io/k3d/releases/download/$K3D_VERSION/k3d-linux-amd64"
+          echo "$K3D_SHA256  $RUNNER_TEMP/k3d" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/k3d" /usr/local/bin/k3d
           k3d cluster create chroma-op --kubeconfig-switch-context=false --wait
           k3d kubeconfig get chroma-op > "$RUNNER_TEMP/kubeconfig"
       - name: End-to-end tests
         run: CHROMA_OPERATOR_KUBECONFIG="$RUNNER_TEMP/kubeconfig" bash build/e2e.sh
+      - name: Logs of the operator
+        if: failure()
+        run: |
+          k() { kubectl --kubeconfig "$RUNNER_TEMP/kubeconfig" --context k3d-chroma-op "$@"; }
+          k get pods -A -o wide || true
+          k -n chroma-operator-system logs deploy/chroma-operator-operator --all-containers --timestamps --tail=-1 || true
+          k -n chroma-operator-system logs deploy/chroma-operator-operator --all-containers --timestamps --tail=-1 --previous || true

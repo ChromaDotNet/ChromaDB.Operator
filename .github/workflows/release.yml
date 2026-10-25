@@ -1,33 +1,54 @@
-# A tag vX.Y.Z publishes the release: the image for amd64 and arm64 on ghcr.io/chromadotnet/chroma-operator:X.Y.Z, and the
-# manifest deploy/chroma-operator.yaml with that image, attached to the GitHub release of the tag.
+# A tag vX.Y.Z publishes the release: the image for amd64 and arm64 on ghcr.io/chromadotnet/chroma-operator:X.Y.Z, with its build
+# provenance and its Sigstore signature, and the manifest deploy/chroma-operator.yaml with that image, attached to the GitHub release
+# of the tag.
 name: Release
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
 permissions:
-  contents: write
-  packages: write
+  contents: read
 jobs:
   release:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    # Only the version tags may deploy to this environment.
+    environment: release
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+      packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: 10.0.x
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Image
+        id: image
         run: |
           version=${GITHUB_REF_NAME#v}
           docker buildx build --platform linux/amd64,linux/arm64 --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
-            --label "org.opencontainers.image.version=$version" -t "ghcr.io/chromadotnet/chroma-operator:$version" --push .
+            --label "org.opencontainers.image.version=$version" -t "ghcr.io/chromadotnet/chroma-operator:$version" --push \
+            --metadata-file "$RUNNER_TEMP/metadata.json" .
+          echo "digest=$(jq -r '.["containerimage.digest"]' "$RUNNER_TEMP/metadata.json")" >> "$GITHUB_OUTPUT"
+      - name: Build provenance of the image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/chromadotnet/chroma-operator
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Sigstore signature of the image
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/chromadotnet/chroma-operator@$DIGEST"
       - name: Manifest
         run: bash build/manifest.sh "${GITHUB_REF_NAME#v}"
       - name: Release
