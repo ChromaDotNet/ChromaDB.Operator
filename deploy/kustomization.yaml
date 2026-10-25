@@ -7,6 +7,8 @@ resources:
   - generated
   - service-account.yaml
   - leader-election-role.yaml
+  # The CRD of the MemberLists of distributed Chroma, from the chart (build/chart.sh).
+  - memberlist-crd.yaml
 images:
   - name: ghcr.io/chromadotnet/chroma-operator
     newTag: dev
@@ -51,13 +53,14 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/readinessProbe
         value: {httpGet: {path: /healthz, port: health}, periodSeconds: 5}
-      # The image of a Chroma without spec.image, and the repositories a Chroma can use (comma separated, or *).
+      # The image of a Chroma without spec.image, and the repositories a Chroma can use (comma separated, <path>/* for the repositories
+      # under a path, or *): those of single-node Chroma and the nine of distributed Chroma.
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value: {name: CHROMA_DEFAULT_IMAGE, value: "docker.io/chromadb/chroma:1.5.9"}
       - op: add
         path: /spec/template/spec/containers/0/env/-
-        value: {name: CHROMA_ALLOWED_IMAGES, value: "docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma"}
+        value: {name: CHROMA_ALLOWED_IMAGES, value: "docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma,docker.io/chromadb/rust-frontend-service-oss,docker.io/chromadb/sysdb-service,docker.io/chromadb/sysdb-migration,docker.io/chromadb/rust-log-service,docker.io/chromadb/query-service,docker.io/chromadb/compactor-service,docker.io/chromadb/garbage-collector-service,docker.io/chromadb/work-queue-service,docker.io/chromadb/fn-consumer-service"}
   # The CLI binds the role to the ServiceAccount default of the namespace: the operator has one of its own.
   - target:
       kind: ClusterRoleBinding
@@ -69,26 +72,30 @@ patches:
       - op: replace
         path: /subjects/0/name
         value: chroma-operator
-  # The CLI always adds events and leases: the operator publishes no events and runs without leader election. It also grants get and
-  # patch on the status of Chroma resources, which the operator writes with update only. The test operations make the build fail if the
-  # generated rules move.
+  # The CLI always adds events and leases with every verb: the operator publishes no events, its own Lease is in a Role of its
+  # namespace (leader-election-role.yaml), and in the namespaces of distributed Chroma it holds only what the Role lease-watcher of the
+  # chart grants, its own rule above this one. The CLI also grants get and patch on the status of Chroma resources, which the operator
+  # writes with update only. The test operations make the build fail if the generated rules move.
   - target:
       kind: ClusterRole
       name: operator-role
     patch: |-
       - op: test
-        path: /rules/6/resources
+        path: /rules/13/resources
         value: [leases]
+      - op: test
+        path: /rules/13/verbs
+        value: [get, list, watch, create, update, patch, delete]
       - op: remove
-        path: /rules/6
+        path: /rules/13
       - op: test
         path: /rules/1/resources
         value: [events]
       - op: remove
         path: /rules/1
       - op: test
-        path: /rules/4/resources
+        path: /rules/9/resources
         value: [chromas/status]
       - op: replace
-        path: /rules/4/verbs
+        path: /rules/9/verbs
         value: [update]

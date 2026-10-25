@@ -1,9 +1,9 @@
 # ChromaDB.Operator
 
-A Kubernetes operator for single-node [Chroma](https://www.trychroma.com/) 1.x, written in .NET with
+A Kubernetes operator for [Chroma](https://www.trychroma.com/) 1.x, single-node and distributed, written in .NET with
 [KubeOps](https://github.com/dotnet/dotnet-operator-sdk). It follows the patterns of [CloudNativePG](https://cloudnative-pg.io/):
-the operator manages the Pod and its PersistentVolumeClaim directly, without a StatefulSet, and keeps the state in the status of the
-resource.
+for single-node Chroma the operator manages the Pod and its PersistentVolumeClaim directly, without a StatefulSet; for distributed
+Chroma it creates the objects of the Helm chart of Chroma. Either way it keeps the state in the status of the resource.
 
 Community project, not affiliated with Chroma.
 
@@ -12,8 +12,9 @@ Community project, not affiliated with Chroma.
 ## What v0.1 does
 
 - A `Chroma` in the mode `single-node`, the default, gives one Chroma server: a PersistentVolumeClaim for `/data`, a Pod, a ConfigMap
-  with the configuration, and a Service. The mode `distributed` is in the API, but this version of the operator does not implement it
-  yet: such a `Chroma` fails with the reason `DistributedNotImplemented` and creates nothing. The mode cannot change after the creation.
+  with the configuration, and a Service. In the mode `distributed` it gives the components of the Helm chart `distributed-chroma` of
+  Chroma, on an external Postgres and an external S3 bucket: see [A distributed Chroma](#a-distributed-chroma). The mode cannot change
+  after the creation.
 - A change of the configuration restarts the Pod. The data stays on the claim.
 - The Pod runs as a non-root user, with a read-only root filesystem and `/tmp` as an `emptyDir`. Chroma needs a writable `/tmp`: without
   it SQLite fails at the start. The probes are HTTP, since the image of Chroma has no `curl`.
@@ -26,7 +27,7 @@ Community project, not affiliated with Chroma.
 - Only the repositories the operator allows can run. By default these are `docker.io/chromadb/chroma` and
   `ghcr.io/chroma-core/chroma`. Whoever can create a Chroma chooses its image, and the operator runs it.
 
-Not yet: backups (with CSI VolumeSnapshots), resize of the claim, hibernation, metrics, a Helm chart, authentication, distributed Chroma.
+Not yet: backups (with CSI VolumeSnapshots), resize of the claim, hibernation, metrics, a Helm chart, authentication.
 
 ## Install
 
@@ -42,22 +43,27 @@ kubectl apply -f deploy/chroma-operator.yaml
 On other clusters, push the image to a registry the nodes can pull from, then set it with
 `kubectl -n chroma-operator-system set image deploy/chroma-operator-operator operator=<registry>/chroma-operator:<tag>`.
 
-`deploy/chroma-operator.yaml` has the CustomResourceDefinition, the RBAC, and the Deployment of the operator in the namespace
+`deploy/chroma-operator.yaml` has the CustomResourceDefinitions, the RBAC, and the Deployment of the operator in the namespace
 `chroma-operator-system`. Two environment variables of the Deployment configure the operator:
 
 | Variable | Default | |
 |---|---|---|
 | `CHROMA_DEFAULT_IMAGE` | `docker.io/chromadb/chroma:1.5.9` | The image of a Chroma without `spec.image`. |
-| `CHROMA_ALLOWED_IMAGES` | `docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma` | The repositories a Chroma can use, separated by commas, or `*` for any. |
+| `CHROMA_ALLOWED_IMAGES` | `docker.io/chromadb/chroma`, `ghcr.io/chroma-core/chroma` and the nine images of distributed Chroma in `docker.io/chromadb` | The repositories a Chroma can use, separated by commas; `<path>/*` for every repository under a path, like a mirror; or `*` for any. |
 
 Who can create a Chroma is up to the RBAC of the cluster, as for any other resource.
 
 The operator runs as the ServiceAccount `chroma-operator`. Its ClusterRole has only what the operator uses:
 - Chroma resources: read, watch and update; update of their status and of their finalizers;
 - Pods: read, watch, create, update and delete;
-- ConfigMaps, Services and PersistentVolumeClaims: read, create and update.
+- PersistentVolumeClaims: read, create and update;
+- for distributed Chroma, the objects of the chart: ConfigMaps, Services, ServiceAccounts, Roles, RoleBindings, Deployments,
+  StatefulSets and Jobs, read, listed, created and patched; the Jobs of earlier versions deleted;
+- Secrets: read only, for the checks of Postgres and of the bucket of a distributed Chroma;
+- MemberLists and Leases: what the Roles of the chart grant to its components, since Kubernetes lets a Role grant only what its
+  writer holds.
 
-The operator never deletes a claim.
+The operator never deletes a claim, a Postgres or a bucket.
 
 One operator works at a time. The Deployment replaces its Pod with the strategy `Recreate`. The operator holds the Lease
 `chroma-operator-leader` in its namespace, through a Role limited to it: with more replicas, or with a Pod left on a lost node,
@@ -114,7 +120,7 @@ Clients connect to `http://demo-rw.<namespace>.svc:8000`, which is also in `stat
 
 | Field | |
 |---|---|
-| `mode` | `single-node` (default) or `distributed`, not implemented yet. It cannot change after the creation: the data of the two modes are not the same. |
+| `mode` | `single-node` (default) or `distributed` (see below). It cannot change after the creation: the data of the two modes are not the same. |
 | `image` | The image of Chroma with an exact version tag, optionally followed by `@sha256:<digest>`. Empty: the default image of the operator, written into the spec. |
 | `imagePullPolicy` | `IfNotPresent` by default. |
 | `storage.size`, `storage.storageClass` | The PersistentVolumeClaim of `/data`. An empty class means the default class of the cluster. |
@@ -194,6 +200,86 @@ the version of the data unknown, as an image like `latest` does (see above).
 
 **Names.** The name of a Chroma is a DNS label of at most 60 characters, so that its Service `<name>-rw` is a valid DNS label.
 
+## A distributed Chroma
+
+The operator creates the objects of `helm template` of the chart `distributed-chroma` of Chroma, for the values it derives from the
+spec, over `values.yaml` and `values.dev.yaml` of the chart. A test compares them with the output of Helm (`build/chart.sh`).
+
+```yaml
+apiVersion: chroma.chromadotnet.org/v1alpha1
+kind: Chroma
+metadata:
+  name: chroma
+spec:
+  mode: distributed
+  distributed:
+    version: 52ce844
+    postgres:
+      host: postgres
+      credentialsSecret: {name: chroma-postgres}      # keys username and password
+    objectStorage:
+      s3:
+        endpoint: http://10.43.119.132:8333           # empty for AWS S3
+        bucket: chroma-storage
+        credentialsSecret: {name: chroma-storage}     # keys accessKeyId and secretAccessKey
+    queryService: {replicas: 2}
+```
+
+Clients connect to `http://rust-frontend-service.<namespace>.svc:8000`, which is also in `status.endpoint`.
+
+**What it needs.**
+- **A known version.** `version` is the commit of Chroma whose images run, as Chroma tags them. The operator runs only the versions it
+  knows, each with its chart and the config files of the same commit: today `52ce844`, chart 0.1.94.
+- **CPUs with AVX-512.** The published images of query, compaction, garbage collector, work queue and fn-consumer need it: elsewhere
+  they end with SIGILL (exit code 132).
+- **One distributed Chroma per namespace.** The objects of the chart have fixed names. A second one fails with
+  `DistributedNamespaceTaken`.
+- **A Postgres and an S3 bucket that exist.** The operator checks them before it creates anything, and never creates or deletes them:
+  - the conditions `PostgresReady` and `ObjectStorageReady` say what is wrong, for example `SecretNotFound`, `KeyMissing`,
+    `Unreachable`, `AuthenticationFailed`, `DatabaseNotFound`, `BucketNotFound` or `AccessDenied`;
+  - the username and the password of Postgres may contain only letters, digits and `. _ ~ -`, because the chart passes them unquoted
+    to a shell and into a URL.
+- **For an S3 inside the cluster, the IP of its Service in the endpoint.** The S3 client of the services of Chroma addresses the bucket
+  in the path only when the endpoint is an IP. With a name it asks for `<bucket>.<host>`, which the DNS of a cluster does not resolve.
+  The operator checks it: `VirtualHostNotResolvable`.
+
+**Fields of `spec.distributed`.**
+
+| Field | |
+|---|---|
+| `version` | The commit of Chroma: its first 7 characters, or the whole hash. |
+| `imageRegistry` | The registry and the path of the images, `docker.io/chromadb` by default. It must be in `CHROMA_ALLOWED_IMAGES`. |
+| `postgres.host`, `port`, `database`, `sslMode`, `credentialsSecret` | The Postgres of the sysdb: port 5432, database `sysdb` and `sslMode` `disable` by default. |
+| `objectStorage.s3.endpoint`, `bucket`, `region`, `credentialsSecret` | The bucket: `chroma-storage` in `us-east-1` by default. |
+| `frontend`, `sysdb`, `logService`, `queryService`, `compactionService`, `garbageCollector`, `workQueue`, `fnConsumer` | Per component, what the values of the chart let change: `replicas` (frontend, log, query, compaction), `resources` (cpu and memory, merged over those of the chart), `nodeSelector`, `tolerations`, `affinity`. The API refuses a field the chart does not have for that component. |
+
+**How it starts and updates.**
+1. The Job `sysdb-migration-<version>` migrates Postgres, and nothing else starts until it completes. The Jobs of earlier versions go
+   once it does, as Helm deletes them.
+2. Then the components, tier by tier, each after the one before is updated and ready: the sysdb, the log service, the workers, and
+   the frontend last.
+3. `status.versionHistory` keeps the versions migrated on Postgres. Going back to one before the last is a downgrade, refused without
+   the annotation `chroma.chromadotnet.org/allow-downgrade: "true"`.
+
+**Repairs.** The operator repairs two known failures of distributed Chroma, and the condition `Repaired` says when and why:
+- the work queue stays not ready when it starts before the storage: its Pod, not ready for 180 seconds, is deleted
+  (`WorkQueueRestarted`);
+- the sysdb runs for leader only once, and after it loses the Lease nobody lists the members of the components. A MemberList missing
+  ready Pods for 180 seconds, with the sysdb ready as long, restarts the sysdb (`SysdbLeaderLost`).
+
+**Status.** `phase` is `Creating`, `Migrating`, `Ready`, `Updating` or `Failed`. `components` has, for each component, its replicas,
+the ready ones and the members of its MemberList. `version` is the version that runs on all the components.
+
+**Differences from the chart**, and only these:
+- the MemberLists have `members: []` instead of null;
+- there is no Namespace, since the Chroma lives in it already;
+- the images Chroma publishes, by commit, and the command of the frontend of `values.dev.yaml`;
+- the credentials of Postgres and S3 come from the Secrets, through the environment, never in the ConfigMaps;
+- the Chroma is the controller of every object, and the operator labels them with `chroma.chromadotnet.org/chroma`. The sysdb
+  rewrites the MemberLists without their labels and owner, so the operator deletes them when the Chroma is deleted. If the operator
+  is not running at that moment, the MemberLists stay: `kubectl -n <namespace> delete memberlists --all`;
+- `values.dev.yaml` sets `CHROMA_ALLOW_RESET`, which lets anyone who reaches the frontend delete all the data: the operator does not.
+
 ## Development
 
 The project targets .NET 10 and uses KubeOps 13.3.4.
@@ -201,6 +287,7 @@ The project targets .NET 10 and uses KubeOps 13.3.4.
 ```
 dotnet test tests/ChromaDotNet.Operator.Tests      # unit tests
 bash build/manifest.sh                             # regenerates deploy/chroma-operator.yaml from the code
+bash build/chart.sh                                # renders the chart of distributed Chroma for the tests; needs helm and the network
 ```
 
 The end-to-end tests run against a k3d cluster. Every command gets the kubeconfig and the context of the test cluster explicitly,

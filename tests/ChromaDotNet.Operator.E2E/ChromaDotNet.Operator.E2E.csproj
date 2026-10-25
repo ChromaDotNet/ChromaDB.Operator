@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<!-- Tests against a cluster with the operator installed: build/e2e.sh. Without CHROMA_OPERATOR_KUBECONFIG and
 	     CHROMA_OPERATOR_CONTEXT they are ignored; the current context of the machine is never used. -->
+	<ItemGroup>
+		<None Include="distributed-deps.yaml" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
 </Project>

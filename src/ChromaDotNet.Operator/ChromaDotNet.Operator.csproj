@@ -14,6 +14,13 @@
 		<FrameworkReference Include="Microsoft.AspNetCore.App" />
 		<PackageReference Include="KubeOps.Operator" Version="$(KubeOpsVersion)" />
 		<PackageReference Include="KubeOps.Generator" Version="$(KubeOpsVersion)" PrivateAssets="all" />
+		<!-- The checks of the external Postgres and bucket of a distributed Chroma, before anything starts. -->
+		<PackageReference Include="AWSSDK.S3" Version="4.0.104.6" />
+		<PackageReference Include="Npgsql" Version="10.0.3" />
+	</ItemGroup>
+	<ItemGroup>
+		<!-- The config files of distributed Chroma, by version, from build/chart.sh: Distributed/<tag>/<file>, with / or \ by system. -->
+		<EmbeddedResource Include="Distributed\**\*.yaml" LogicalName="Distributed/%(RecursiveDir)%(Filename)%(Extension)" />
 	</ItemGroup>
 	<ItemGroup>
 		<InternalsVisibleTo Include="ChromaDotNet.Operator.Tests" />

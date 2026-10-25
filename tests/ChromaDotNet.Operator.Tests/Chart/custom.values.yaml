@@ -1,0 +1,57 @@
+# The values of the components that custom.chroma.yaml sets, for build/chart.sh. Helm merges them key by key over
+# values.dev.yaml, as the operator merges the resources of the spec over the defaults.
+rustFrontendService:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 250m
+  nodeSelector:
+    pool: frontend
+sysdb:
+  resources:
+    limits:
+      memory: 512Mi
+  nodeSelector:
+    pool: system
+  tolerations:
+    - {key: dedicated, operator: Equal, value: system, effect: NoSchedule}
+# The migration Job runs where the sysdb runs.
+sysdbMigration:
+  nodeSelector:
+    pool: system
+  tolerations:
+    - {key: dedicated, operator: Equal, value: system, effect: NoSchedule}
+rustLogService:
+  replicaCount: 2
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels: {app: rust-log-service}
+queryService:
+  replicaCount: 3
+  resources:
+    limits: {cpu: '2', memory: 4Gi}
+    requests: {cpu: '1', memory: 2Gi}
+  nodeSelector:
+    pool: avx512
+  tolerations:
+    - {key: avx512, operator: Exists, effect: NoSchedule}
+compactionService:
+  replicaCount: 1
+  nodeSelector:
+    pool: avx512
+  tolerations:
+    - {key: avx512, operator: Exists, effect: NoSchedule}
+garbageCollector:
+  resources:
+    requests: {memory: 256Mi}
+workQueueService:
+  resources:
+    limits: {cpu: 500m}
+fnConsumer:
+  nodeSelector:
+    pool: frontend

@@ -21,13 +21,23 @@ public class ManifestTests
 	{
 		Assert.That(Granted(), Is.EquivalentTo(new[]
 		{
-			"/configmaps: create,get,update",
+			"/configmaps: create,get,list,patch,update",
 			"/persistentvolumeclaims: create,get,update",
 			"/pods: create,delete,get,list,update,watch",
-			"/services: create,get,update",
+			"/secrets: get",
+			"/serviceaccounts: create,get,list,patch",
+			"/services: create,get,list,patch,update",
+			"apps/deployments: create,get,list,patch",
+			"apps/statefulsets: create,get,list,patch",
+			"batch/jobs: create,delete,get,list,patch",
 			"chroma.chromadotnet.org/chromas: get,list,update,watch",
 			"chroma.chromadotnet.org/chromas/finalizers: update",
 			"chroma.chromadotnet.org/chromas/status: update",
+			// What the Roles of the chart grant: a Role grants only what its writer holds.
+			"chroma.cluster/memberlists: create,delete,get,list,patch,update,watch",
+			"coordination.k8s.io/leases: create,delete,get,update,watch",
+			"rbac.authorization.k8s.io/rolebindings: create,get,list,patch",
+			"rbac.authorization.k8s.io/roles: create,get,list,patch",
 		}));
 		Assert.That(Objects.OfType<V1ClusterRole>().Single().Rules.All(r => r.NonResourceURLs is null or { Count: 0 }), Is.True);
 	}

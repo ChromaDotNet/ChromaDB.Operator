@@ -1,0 +1,65 @@
+# The case custom of build/chart.sh, with custom.values.yaml: another namespace, a mirror, AWS S3 without an endpoint, a Postgres
+# with TLS, and replicas, resources and placement on the components.
+apiVersion: chroma.chromadotnet.org/v1alpha1
+kind: Chroma
+metadata:
+  name: vectors
+  namespace: team-a
+spec:
+  mode: distributed
+  distributed:
+    version: 52ce8448cb38a498f1660d55ea80df25b78f000a
+    imageRegistry: registry.example.com/mirror
+    postgres:
+      host: pg.databases.svc.cluster.local
+      port: 6432
+      database: chroma_sysdb
+      sslMode: require
+      credentialsSecret: {name: team-a-pg}
+    objectStorage:
+      s3:
+        bucket: vectors
+        region: eu-west-1
+        credentialsSecret: {name: team-a-s3}
+    frontend:
+      replicas: 2
+      resources:
+        requests: {cpu: 250m}
+      nodeSelector: {pool: frontend}
+    sysdb:
+      resources:
+        limits: {memory: 512Mi}
+      nodeSelector: {pool: system}
+      tolerations:
+        - {key: dedicated, operator: Equal, value: system, effect: NoSchedule}
+    logService:
+      replicas: 2
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {app: rust-log-service}
+    queryService:
+      replicas: 3
+      resources:
+        limits: {cpu: '2', memory: 4Gi}
+        requests: {cpu: '1', memory: 2Gi}
+      nodeSelector: {pool: avx512}
+      tolerations:
+        - {key: avx512, operator: Exists, effect: NoSchedule}
+    compactionService:
+      replicas: 1
+      nodeSelector: {pool: avx512}
+      tolerations:
+        - {key: avx512, operator: Exists, effect: NoSchedule}
+    garbageCollector:
+      resources:
+        requests: {memory: 256Mi}
+    workQueue:
+      resources:
+        limits: {cpu: 500m}
+    fnConsumer:
+      nodeSelector: {pool: frontend}

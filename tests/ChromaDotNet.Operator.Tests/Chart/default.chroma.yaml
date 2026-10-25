@@ -1,0 +1,17 @@
+# The case default of build/chart.sh: the namespace of the chart, the defaults of the operator for everything else.
+apiVersion: chroma.chromadotnet.org/v1alpha1
+kind: Chroma
+metadata:
+  name: chroma
+  namespace: chroma
+spec:
+  mode: distributed
+  distributed:
+    version: 52ce844
+    postgres:
+      host: postgres
+      credentialsSecret: {name: chroma-postgres}
+    objectStorage:
+      s3:
+        endpoint: http://minio.chroma.svc.cluster.local:9000
+        credentialsSecret: {name: chroma-storage}

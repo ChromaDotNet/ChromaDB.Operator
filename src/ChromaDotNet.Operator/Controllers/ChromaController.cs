@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using ChromaDotNet.Operator.Distributed;
 using ChromaDotNet.Operator.Entities;
 using k8s;
 using k8s.Autorest;
@@ -27,10 +28,25 @@ namespace ChromaDotNet.Operator.Controllers;
 [GenericRbac(Groups = [Labels.Group], Resources = ["chromas/finalizers"], Verbs = RbacVerb.Update)]
 [GenericRbac(Groups = [""], Resources = ["pods"],
 	Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Watch | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
-[GenericRbac(Groups = [""], Resources = ["configmaps", "persistentvolumeclaims", "services"], Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
-public sealed class ChromaController(IKubernetesClient client, OperatorOptions options, ILogger<ChromaController> logger)
+[GenericRbac(Groups = [""], Resources = ["persistentvolumeclaims"], Verbs = RbacVerb.Get | RbacVerb.Create | RbacVerb.Update)]
+// Distributed: the objects of the chart, listed to tell those of others, and written with server-side apply (patch). The Secrets of
+// Postgres and of the bucket are read for the checks before the start. Kubernetes lets a Role grant only what its writer holds: the
+// operator holds what the Roles of the chart grant, on the MemberLists, the Pods and the Leases.
+[GenericRbac(Groups = [""], Resources = ["configmaps", "services"], Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Create | RbacVerb.Update | RbacVerb.Patch)]
+[GenericRbac(Groups = [""], Resources = ["serviceaccounts"], Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Create | RbacVerb.Patch)]
+[GenericRbac(Groups = [""], Resources = ["secrets"], Verbs = RbacVerb.Get)]
+[GenericRbac(Groups = ["rbac.authorization.k8s.io"], Resources = ["roles", "rolebindings"], Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Create | RbacVerb.Patch)]
+[GenericRbac(Groups = ["apps"], Resources = ["deployments", "statefulsets"], Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Create | RbacVerb.Patch)]
+[GenericRbac(Groups = ["batch"], Resources = ["jobs"], Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Create | RbacVerb.Patch | RbacVerb.Delete)]
+[GenericRbac(Groups = ["chroma.cluster"], Resources = ["memberlists"],
+	Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Watch | RbacVerb.Create | RbacVerb.Update | RbacVerb.Patch | RbacVerb.Delete)]
+[GenericRbac(Groups = ["coordination.k8s.io"], Resources = ["leases"],
+	Verbs = RbacVerb.Get | RbacVerb.Watch | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
+public sealed class ChromaController(IKubernetesClient client, OperatorOptions options, ILogger<ChromaController> logger, IDependencyChecks? checks = null)
 	: IEntityController<V1Alpha1Chroma>
 {
+	private readonly DistributedReconciler _distributed = new(client, options, checks ?? new DependencyChecks(), logger);
+
 	public static readonly TimeSpan FirstRetry = TimeSpan.FromSeconds(10);
 	public static readonly TimeSpan LastRetry = TimeSpan.FromMinutes(5);
 
@@ -93,14 +109,9 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 		var name = server.Name();
 		try
 		{
-			// The distributed mode is in the schema, so that the resource keeps its shape, but this version of the operator does not
-			// implement it: nothing is created, not even the default image in the spec, and the status says why. No requeue: the mode
-			// does not change, and a change of the spec comes with the watch.
-			if (server.Spec.Mode == V1Alpha1Chroma.ChromaSpec.Distributed)
-			{
-				var written = await WriteStatusAsync(server, Reconciliation.DistributedNotImplemented(server, DateTime.UtcNow), cancellationToken);
-				return ReconciliationResult<V1Alpha1Chroma>.Success(written.Entity);
-			}
+			// The distributed mode has its own pass: the objects of the chart, not a Pod and its claim.
+			if (server.Spec.Mode == V1Alpha1Chroma.ChromaSpec.DistributedMode)
+				return await _distributed.PassAsync(server, DateTime.UtcNow, cancellationToken);
 			// Without an image, the default of the operator goes into the spec: the version is then written down, and a new version of the
 			// operator with another default does not change it. The pass goes on with the updated server, so that what a Pod shows is
 			// recorded in this pass too.
@@ -213,15 +224,28 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 		}
 	}
 
-	public Task<ReconciliationResult<V1Alpha1Chroma>> DeletedAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
+	public async Task<ReconciliationResult<V1Alpha1Chroma>> DeletedAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
 	{
 		// The Pod, the Service and the ConfigMap have the Chroma as owner: the garbage collector of Kubernetes deletes them; the
 		// claim too with pvcDeletionPolicy Delete, once a pass has made the server its owner. With Retain the claim stays, with the data:
 		// the passes remove the server from its owners, and ClaimFinalizer does it at the deletion for a change no pass applied yet.
+		// Distributed: the objects of the chart have it as owner too, but the MemberLists lose it to the sysdb, and are deleted here.
 		var name = server.Metadata.Name;
 		Failures.TryRemove(server.Uid(), out _);
+		DistributedReconciler.Forget(server.Uid());
 		Log.Deleted(logger, name);
-		return Task.FromResult(ReconciliationResult<V1Alpha1Chroma>.Success(server));
+		if (server.Spec.Mode == V1Alpha1Chroma.ChromaSpec.DistributedMode)
+		{
+			try
+			{
+				await _distributed.DeletedAsync(server, cancellationToken);
+			}
+			catch (HttpOperationException e)
+			{
+				Log.MemberListsNotDeleted(logger, e, name, server.Namespace());
+			}
+		}
+		return ReconciliationResult<V1Alpha1Chroma>.Success(server);
 	}
 
 	/// <summary>
@@ -439,7 +463,7 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 		var desired = Resources.Pvc(server);
 		var name = server.Metadata.Name;
 		var pvc = desired.Metadata.Name;
-		var size = server.Spec.Storage.Size;
+		var size = server.Spec.Storage!.Size;
 		Log.CreatingPvc(logger, name, pvc, size);
 		try
 		{

@@ -4,6 +4,16 @@ namespace ChromaDotNet.Operator.Tests;
 
 public class OperatorOptionsTests
 {
+	// <path>/* allows the repositories under a path: a registry alone, with a port, or a path of Docker Hub.
+	[TestCase("registry.example.com/*", "registry.example.com/sysdb-service:52ce844", true)]
+	[TestCase("registry.example.com/*", "registry.example.com/mirror/sysdb-service:52ce844", true)]
+	[TestCase("localhost:5000/*", "localhost:5000/sysdb-service:52ce844", true)]
+	[TestCase("chromadb/*", "docker.io/chromadb/sysdb-service:52ce844", true)]
+	[TestCase("registry.example.com/mirror/*", "registry.example.com/sysdb-service:52ce844", false)]
+	[TestCase("registry.example.com/mirror/*", "registry.example.com/mirror-2/sysdb-service:52ce844", false)]
+	public void PathAllowsTheRepositoriesUnderIt(string allowed, string image, bool expected) =>
+		Assert.That(new OperatorOptions(allowedImages: "docker.io/chromadb/chroma," + allowed).IsAllowed(image), Is.EqualTo(expected));
+
 	// Docker writes the registry out: chromadb/chroma is docker.io/chromadb/chroma, and an image without a slash is in docker.io/library.
 	[TestCase("chromadb/chroma:1.5.9", "docker.io/chromadb/chroma")]
 	[TestCase("docker.io/chromadb/chroma:1.5.9", "docker.io/chromadb/chroma")]

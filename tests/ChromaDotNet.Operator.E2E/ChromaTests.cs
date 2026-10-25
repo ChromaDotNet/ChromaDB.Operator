@@ -180,22 +180,6 @@ public class ChromaTests
 		Assert.That(e.Response.Content, Does.Contain("spec.mode cannot change after creation"));
 	}
 
-	// A distributed Chroma: this version of the operator creates nothing, and says why.
-	[Test]
-	public async Task DistributedIsRefusedForNow()
-	{
-		var chroma = TestCluster.NewChroma("dist", Image159);
-		chroma.Spec.Mode = "distributed";
-		await _cluster.CreateAsync(chroma);
-		var failed = await _cluster.WaitAsync("dist", s => s.Status?.Phase == "Failed", TimeSpan.FromSeconds(60), "Failed");
-		Assert.That(failed.Status!.Conditions.Single(c => c.Type == "Ready").Reason, Is.EqualTo("DistributedNotImplemented"));
-		await Task.Delay(TimeSpan.FromSeconds(5));
-		Assert.That(await _cluster.PodAsync("dist-1"), Is.Null);
-		Assert.That(await _cluster.Client.GetAsync<V1PersistentVolumeClaim>("dist-1", _cluster.Namespace), Is.Null);
-		Assert.That(await _cluster.Client.GetAsync<V1ConfigMap>("dist-config", _cluster.Namespace), Is.Null);
-		Assert.That(await _cluster.Client.GetAsync<V1Service>("dist-rw", _cluster.Namespace), Is.Null);
-	}
-
 	[TestCase("docker.io/chromadb/chroma:latest")]
 	[TestCase("docker.io/chromadb/chroma:1.5.10.dev313")]
 	[TestCase("docker.io/chromadb/chroma")]

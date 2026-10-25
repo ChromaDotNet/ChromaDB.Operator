@@ -214,7 +214,7 @@ public class OwnershipTests
 	public async Task RefusedClaimFailsTheServer()
 	{
 		var server = TestCluster.NewChroma("zero", Image159);
-		server.Spec.Storage.Size = "0Gi";
+		server.Spec.Storage!.Size = "0Gi";
 		await _cluster.CreateAsync(server);
 		var failed = await _cluster.WaitAsync("zero", s => s.Status?.Phase == "Failed", TimeSpan.FromSeconds(60), "Failed");
 		var ready = failed.Status!.Conditions.Single(c => c.Type == "Ready");
