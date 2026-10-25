@@ -338,6 +338,19 @@ the ready ones and the members of its MemberList. `version` is the version that 
   is not running at that moment, the MemberLists stay: `kubectl -n <namespace> delete memberlists --all`;
 - `values.dev.yaml` sets `CHROMA_ALLOW_RESET`, which lets anyone who reaches the frontend delete all the data: the operator does not.
 
+## Security considerations
+
+- **Secrets.** The ClusterRole of the operator can read Secrets in every namespace, for the credentials of Postgres and of the
+  bucket, but the operator reads only the Secrets of the namespace of the Chroma, which it takes from the resource and not from
+  its spec.
+- **Distributed Pods.** The Pods of a distributed Chroma use fixed hostPath volumes and have no securityContext, as in the chart of
+  Chroma, so they do not run in a namespace with the Pod Security level `baseline` or `restricted`.
+- **Connections the operator opens.** Whoever can create a Chroma can make the operator connect to a host and port of their
+  choice, through the checks of Postgres and of the bucket, so on a cluster shared by several teams a NetworkPolicy that limits
+  the egress of the operator is advisable.
+- **Reconciliation.** On AKS a change of a Chroma once waited for a restart of the operator, for a cause not known, and the resync
+  of every minute and the liveness probe described in [Install](#install) cover it.
+
 ## Development
 
 The project targets .NET 10 and uses KubeOps 13.3.4.
