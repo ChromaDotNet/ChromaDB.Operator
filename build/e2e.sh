@@ -23,7 +23,7 @@ bash build/k.sh get namespace default -o name >/dev/null
 k() { "$CHROMA_OPERATOR_KUBECTL" --kubeconfig "$CHROMA_OPERATOR_KUBECONFIG" --context "$CHROMA_OPERATOR_CONTEXT" "$@"; }
 
 docker build -q -t ghcr.io/chromadotnet/chroma-operator:dev . >/dev/null
-images="chromadb/chroma:1.5.3 chromadb/chroma:1.5.9 ghcr.io/vecturadb/vecturadb:1.0.0-preview.1"
+images="chromadb/chroma:1.5.3 chromadb/chroma:1.5.9 ghcr.io/vecturadb/vecturadb:1.0.0-preview.2"
 for image in $images; do docker image inspect "$image" >/dev/null 2>&1 || docker pull -q "$image" >/dev/null; done
 MSYS_NO_PATHCONV=1 k3d image import -c "$cluster" ghcr.io/chromadotnet/chroma-operator:dev $images >/dev/null
 

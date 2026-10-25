@@ -16,8 +16,8 @@ namespace ChromaDotNet.Operator.Tests;
 /// </summary>
 public class VecturaTests
 {
-	private const string Vectura1 = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.1";
-	private const string Vectura2 = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.2";
+	private const string Vectura1 = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.2";
+	private const string Vectura2 = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.3";
 
 	private static V1Alpha1Chroma OnData(string image, string? product, string? dataVersion, string? runningImage = null)
 	{
@@ -32,16 +32,16 @@ public class VecturaTests
 	[TestCase("chromadb/chroma:1.5.9", "chroma")]
 	[TestCase("ghcr.io/chroma-core/chroma:1.5.9", "chroma")]
 	[TestCase(Vectura1, "vecturadb")]
-	[TestCase("registry.example.com/vecturadb:1.0.0-preview.1", null)]
+	[TestCase("registry.example.com/vecturadb:1.0.0-preview.2", null)]
 	public void ProductOfTheRepository(string image, string? product) => Assert.That(Products.OfRepository(image), Is.EqualTo(product));
 
 	// A mirror: spec.product says the product of the repository of spec.image, and of no other.
 	[Test]
 	public void ProductOfAMirror()
 	{
-		var server = NewChroma("registry.example.com/vecturadb:1.0.0-preview.1");
+		var server = NewChroma("registry.example.com/vecturadb:1.0.0-preview.2");
 		server.Spec.Product = "vecturadb";
-		Assert.That(Products.Of(server, "registry.example.com/vecturadb:1.0.0-preview.2"), Is.EqualTo("vecturadb"));
+		Assert.That(Products.Of(server, "registry.example.com/vecturadb:1.0.0-preview.3"), Is.EqualTo("vecturadb"));
 		Assert.That(Products.Of(server, "registry.example.com/other:1.0.0"), Is.Null);
 		Assert.That(Products.Of(server, Image159), Is.EqualTo("chroma"), "a known repository keeps its product");
 		Assert.That(Products.Error(server), Is.Null);
@@ -50,7 +50,7 @@ public class VecturaTests
 	[Test]
 	public void UnknownRepositoryWithoutProductIsRefused()
 	{
-		var server = OnData("registry.example.com/vecturadb:1.0.0-preview.1", "chroma", "1.5.9", Image159);
+		var server = OnData("registry.example.com/vecturadb:1.0.0-preview.2", "chroma", "1.5.9", Image159);
 		var outcome = Reconciliation.Decide(server, RunningPod(server, Image159), null, Now, new OperatorOptions(allowedImages: "*"));
 		Assert.That(Condition(outcome, "UpgradeBlocked").Reason, Is.EqualTo("UnknownProduct"));
 		Assert.That(Condition(outcome, "UpgradeBlocked").Message, Does.Contain("set spec.product"));
@@ -67,7 +67,7 @@ public class VecturaTests
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 	}
 
-	// The row of the table: Chroma 1.5.9 to VecturaDB 1.0.0-preview.1. 1.0.0 is not compared with 1.5.9: it is not a downgrade.
+	// The row of the table: Chroma 1.5.9 to VecturaDB 1.0.0-preview.2. 1.0.0 is not compared with 1.5.9: it is not a downgrade.
 	[Test]
 	public void ChromaToVecturaAlongTheTable()
 	{
@@ -79,7 +79,7 @@ public class VecturaTests
 		var created = Decide(server, null);
 		Assert.That(created.Action, Is.EqualTo(PodAction.Create));
 		Assert.That(created.DesiredPod!.Spec.Containers[0].Image, Is.EqualTo(Vectura1));
-		Assert.That((created.Status.DataProduct, created.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.1")), "written before the Pod");
+		Assert.That((created.Status.DataProduct, created.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.2")), "written before the Pod");
 	}
 
 	// Chroma 1.5.3 is not in the table: VecturaDB may not know what Chroma did to the data before 1.5.9, or after.
@@ -91,7 +91,7 @@ public class VecturaTests
 		var server = OnData(Vectura1, "chroma", chroma, running);
 		var outcome = Decide(server, RunningPod(server, running));
 		Assert.That(Condition(outcome, "UpgradeBlocked").Reason, Is.EqualTo("ProductChangeNotKnown"));
-		Assert.That(Condition(outcome, "UpgradeBlocked").Message, Does.Contain("Chroma 1.5.9 to VecturaDB 1.0.0-preview.1").And.Contain("The running image stays."));
+		Assert.That(Condition(outcome, "UpgradeBlocked").Message, Does.Contain("Chroma 1.5.9 to VecturaDB 1.0.0-preview.2").And.Contain("The running image stays."));
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 	}
 
@@ -100,13 +100,15 @@ public class VecturaTests
 	[Test]
 	public void VecturaToChromaNeedsTheAnnotation()
 	{
-		var server = OnData(Image159, "vecturadb", "1.0.0-preview.1", Vectura1);
+		var server = OnData(Image159, "vecturadb", "1.0.0-preview.2", Vectura1);
 		var outcome = Decide(server, RunningPod(server, Vectura1));
 		var blocked = Condition(outcome, "UpgradeBlocked");
 		Assert.That(blocked.Reason, Is.EqualTo("ProductChange"));
-		Assert.That(blocked.Message, Does.StartWith("The data was last opened by VecturaDB 1.0.0-preview.1. On Chroma, Search and writes to sparse collections are not available, " +
-			"and the sparse vectors stay on disk but are not visible until the data goes back to VecturaDB, where they are intact. " +
-			"To switch anyway, annotate the Chroma with chroma.chromadotnet.org/allow-product-change: \"true\"."));
+		Assert.That(blocked.Message, Does.StartWith("The data was last opened by VecturaDB 1.0.0-preview.2. Chroma reads the records, documents and metadata, " +
+			"but not the sparse vectors, which stay in the data, and sparse, BM25 and Search queries fail. Writes from Chroma to collections with BM25 fail " +
+			"with the Python client, and other clients write records without their BM25 vectors, or keep the old ones, until their documents are written " +
+			"again with VecturaDB. Do not write with Chroma to data of VecturaDB that uses sparse vectors or BM25: " +
+			"https://vecturadb.org/leaving-chroma-cloud/to-vecturadb.html To switch anyway, annotate the Chroma with chroma.chromadotnet.org/allow-product-change: \"true\"."));
 		Assert.That(blocked.Message, Does.Not.Contain("loss").IgnoreCase.And.Not.Contain("lost").IgnoreCase);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 	}
@@ -115,16 +117,16 @@ public class VecturaTests
 	[Test]
 	public void VecturaToChromaForcedAndBack()
 	{
-		var server = OnData(Image159, "vecturadb", "1.0.0-preview.1", Vectura1);
+		var server = OnData(Image159, "vecturadb", "1.0.0-preview.2", Vectura1);
 		server.Metadata.Annotations = new Dictionary<string, string> { [Labels.AllowProductChange] = "true" };
 		var created = Decide(server, null);
 		Assert.That(created.Action, Is.EqualTo(PodAction.Create));
 		var warning = Condition(created, "UpgradeBlocked");
 		Assert.That((warning.Status, warning.Reason), Is.EqualTo(("False", "ProductChangeAllowed")));
-		Assert.That(warning.Message, Does.Contain("not visible until the data goes back to VecturaDB"));
+		Assert.That(warning.Message, Does.Contain("but not the sparse vectors, which stay in the data").And.Contain("vecturadb.org"));
 		Assert.That((created.Status.DataProduct, created.Status.DataVersion), Is.EqualTo(("chroma", "1.5.9")));
 
-		Assert.That(created.Status.DataVersions, Is.EquivalentTo(new Dictionary<string, string> { ["chroma"] = "1.5.9", ["vecturadb"] = "1.0.0-preview.1" }));
+		Assert.That(created.Status.DataVersions, Is.EquivalentTo(new Dictionary<string, string> { ["chroma"] = "1.5.9", ["vecturadb"] = "1.0.0-preview.2" }));
 
 		var back = OnData(Vectura1, created.Status.DataProduct, created.Status.DataVersion, Image159);
 		back.Status.DataVersions = created.Status.DataVersions;
@@ -138,9 +140,9 @@ public class VecturaTests
 	{
 		var start = OnData(Vectura1, "chroma", "1.5.9", Image159);
 		var created = Decide(start, null);
-		Assert.That(created.Status.DataVersions, Is.EquivalentTo(new Dictionary<string, string> { ["chroma"] = "1.5.9", ["vecturadb"] = "1.0.0-preview.1" }));
+		Assert.That(created.Status.DataVersions, Is.EquivalentTo(new Dictionary<string, string> { ["chroma"] = "1.5.9", ["vecturadb"] = "1.0.0-preview.2" }));
 
-		var server = OnData("docker.io/chromadb/chroma:1.0.0", "vecturadb", "1.0.0-preview.1", Vectura1);
+		var server = OnData("docker.io/chromadb/chroma:1.0.0", "vecturadb", "1.0.0-preview.2", Vectura1);
 		server.Status.DataVersions = created.Status.DataVersions;
 		server.Metadata.Annotations = new Dictionary<string, string> { [Labels.AllowProductChange] = "true" };
 		var outcome = Decide(server, RunningPod(server, Vectura1));
@@ -153,12 +155,12 @@ public class VecturaTests
 	public void WarningStaysWhileChromaRuns()
 	{
 		var server = OnData(Image159, "chroma", "1.5.9", Image159);
-		server.Status.DataVersions = new Dictionary<string, string> { ["chroma"] = "1.5.9", ["vecturadb"] = "1.0.0-preview.1" };
+		server.Status.DataVersions = new Dictionary<string, string> { ["chroma"] = "1.5.9", ["vecturadb"] = "1.0.0-preview.2" };
 		var outcome = Decide(server, RunningPod(server, Image159));
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Ready"));
 		var warning = Condition(outcome, "UpgradeBlocked");
 		Assert.That((warning.Status, warning.Reason), Is.EqualTo(("False", "ProductChangeAllowed")));
-		Assert.That(warning.Message, Does.Contain("opened by VecturaDB 1.0.0-preview.1"));
+		Assert.That(warning.Message, Does.Contain("opened by VecturaDB 1.0.0-preview.2"));
 	}
 
 	// The status and the claim disagree on the product, as after a write that failed: VecturaDB, and Chroma needs the annotation.
@@ -166,7 +168,7 @@ public class VecturaTests
 	public void DisagreementIsVectura()
 	{
 		var server = OnData(Image159, "chroma", "1.5.9");
-		var outcome = Reconciliation.Decide(server, null, "1.0.0-preview.1", Now, Defaults, pvcDataProduct: "vecturadb");
+		var outcome = Reconciliation.Decide(server, null, "1.0.0-preview.2", Now, Defaults, pvcDataProduct: "vecturadb");
 		Assert.That(outcome.Status.DataProduct, Is.EqualTo("vecturadb"));
 		Assert.That(Condition(outcome, "UpgradeBlocked").Reason, Is.EqualTo("ProductChange"));
 	}
@@ -180,7 +182,7 @@ public class VecturaTests
 		pod.Status.ContainerStatuses[0].Image = Image159;
 		var outcome = Decide(server, pod);
 		Assert.That(outcome.Status.DataProduct, Is.EqualTo("vecturadb"));
-		Assert.That(outcome.Status.DataVersions, Is.EquivalentTo(new Dictionary<string, string> { ["chroma"] = "1.5.9", ["vecturadb"] = "1.0.0-preview.1" }));
+		Assert.That(outcome.Status.DataVersions, Is.EquivalentTo(new Dictionary<string, string> { ["chroma"] = "1.5.9", ["vecturadb"] = "1.0.0-preview.2" }));
 	}
 
 	// An image of VecturaDB without a version, put in the Pod by hand: the version is unknown, of VecturaDB, and the declaration too.
@@ -201,7 +203,7 @@ public class VecturaTests
 	[TestCase(" vecturadb ")]
 	public void ProductOfTheClaimInAnyCase(string written)
 	{
-		var outcome = Reconciliation.Decide(NewChroma(Image159), null, "1.0.0-preview.1", Now, Defaults, pvcDataProduct: written);
+		var outcome = Reconciliation.Decide(NewChroma(Image159), null, "1.0.0-preview.2", Now, Defaults, pvcDataProduct: written);
 		Assert.That(outcome.Status.DataProduct, Is.EqualTo("vecturadb"));
 	}
 
@@ -209,7 +211,7 @@ public class VecturaTests
 	[Test]
 	public void NewerVecturaOutsideTheTableIsRefused()
 	{
-		var server = OnData(Vectura2, "vecturadb", "1.0.0-preview.1", Vectura1);
+		var server = OnData(Vectura2, "vecturadb", "1.0.0-preview.2", Vectura1);
 		server.Metadata.Annotations = new Dictionary<string, string> { [Labels.AllowDowngrade] = "true", [Labels.AllowProductChange] = "true" };
 		var outcome = Decide(server, RunningPod(server, Vectura1));
 		Assert.That(Condition(outcome, "UpgradeBlocked").Reason, Is.EqualTo("UpgradeNotKnown"));
@@ -219,7 +221,7 @@ public class VecturaTests
 	[Test]
 	public void OlderVecturaIsADowngrade()
 	{
-		var server = OnData(Vectura1, "vecturadb", "1.0.0-preview.2", Vectura2);
+		var server = OnData(Vectura1, "vecturadb", "1.0.0-preview.3", Vectura2);
 		var outcome = Decide(server, RunningPod(server, Vectura2));
 		Assert.That(Condition(outcome, "UpgradeBlocked").Reason, Is.EqualTo("Downgrade"));
 		Assert.That(Condition(outcome, "UpgradeBlocked").Message, Does.Contain("VecturaDB does not open data of a newer version").And.Contain(Labels.AllowDowngrade));
@@ -233,7 +235,7 @@ public class VecturaTests
 	{
 		var outcome = Decide(NewChroma(Vectura1), null);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.Create));
-		Assert.That((outcome.Status.DataProduct, outcome.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.1")));
+		Assert.That((outcome.Status.DataProduct, outcome.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.2")));
 	}
 
 	// The Pod of VecturaDB that runs makes VecturaDB the product of the data, also seen only from the Pod.
@@ -242,7 +244,7 @@ public class VecturaTests
 	{
 		var server = OnData(Vectura1, null, null);
 		var outcome = Decide(server, RunningPod(server, Vectura1));
-		Assert.That((outcome.Status.DataProduct, outcome.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.1")));
+		Assert.That((outcome.Status.DataProduct, outcome.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.2")));
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Ready"));
 	}
 
@@ -250,9 +252,9 @@ public class VecturaTests
 	[Test]
 	public void ClaimKeepsTheProduct()
 	{
-		var outcome = Reconciliation.Decide(NewChroma(Image159), null, "1.0.0-preview.1", Now, Defaults, pvcDataProduct: "vecturadb");
+		var outcome = Reconciliation.Decide(NewChroma(Image159), null, "1.0.0-preview.2", Now, Defaults, pvcDataProduct: "vecturadb");
 		Assert.That(Condition(outcome, "UpgradeBlocked").Reason, Is.EqualTo("ProductChange"));
-		Assert.That((outcome.Status.DataProduct, outcome.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.1")));
+		Assert.That((outcome.Status.DataProduct, outcome.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.2")));
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 		// A claim of v0.1, without the product, is of Chroma.
 		var legacy = Reconciliation.Decide(NewChroma(Image153), null, "1.5.9", Now, Defaults);
@@ -263,7 +265,7 @@ public class VecturaTests
 	[Test]
 	public void RecoveryImageFollowsThePassages()
 	{
-		var server = OnData("docker.io/chromadb/chroma:1.5.10", "vecturadb", "1.0.0-preview.1");
+		var server = OnData("docker.io/chromadb/chroma:1.5.10", "vecturadb", "1.0.0-preview.2");
 		server.Status.RecoveryImage = Image159;
 		server.Status.Image = Vectura1;
 		var outcome = Decide(server, null);
@@ -276,7 +278,7 @@ public class VecturaTests
 	public async Task ClaimGetsTheProduct()
 	{
 		using var client = Substitute.For<IKubernetesClient>();
-		var server = OnData(Vectura1, "vecturadb", "1.0.0-preview.1", Vectura1);
+		var server = OnData(Vectura1, "vecturadb", "1.0.0-preview.2", Vectura1);
 		server.ApiVersion = "chroma.chromadotnet.org/v1alpha1";
 		server.Kind = "Chroma";
 		var pod = RunningPod(server, Vectura1);
@@ -289,9 +291,9 @@ public class VecturaTests
 		client.UpdateAsync(Arg.Any<V1PersistentVolumeClaim>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1PersistentVolumeClaim>());
 		client.UpdateStatusAsync(Arg.Any<V1Alpha1Chroma>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1Chroma>());
 		await new ChromaController(client, Defaults, NullLogger<ChromaController>.Instance).ReconcileAsync(server, CancellationToken.None);
-		await client.Received(1).UpdateAsync(Arg.Is<V1PersistentVolumeClaim>(c => c.Metadata.Annotations[Labels.ClaimDataVersion] == "1.0.0-preview.1"
+		await client.Received(1).UpdateAsync(Arg.Is<V1PersistentVolumeClaim>(c => c.Metadata.Annotations[Labels.ClaimDataVersion] == "1.0.0-preview.2"
 			&& c.Metadata.Annotations[Labels.ClaimDataProduct] == "vecturadb"
-			&& c.Metadata.Annotations[Labels.ClaimDataVersions] == "chroma=1.5.9,vecturadb=1.0.0-preview.1"), Arg.Any<CancellationToken>());
+			&& c.Metadata.Annotations[Labels.ClaimDataVersions] == "chroma=1.5.9,vecturadb=1.0.0-preview.2"), Arg.Any<CancellationToken>());
 	}
 
 	// The CRD: spec.product, and the images of VecturaDB with their previews.

@@ -7,14 +7,14 @@ using NUnit.Framework;
 namespace ChromaDotNet.Operator.E2E;
 
 /// <summary>
-/// VecturaDB on the same claim as Chroma: the passage of the table, Chroma 1.5.9 to VecturaDB 1.0.0-preview.1, the refused ones, and
+/// VecturaDB on the same claim as Chroma: the passage of the table, Chroma 1.5.9 to VecturaDB 1.0.0-preview.2, the refused ones, and
 /// the passage back to Chroma with the annotation. The records stay through all of them.
 /// </summary>
 public class VecturaTests
 {
 	private const string Image153 = "docker.io/chromadb/chroma:1.5.3";
 	private const string Image159 = "docker.io/chromadb/chroma:1.5.9";
-	private const string Vectura1 = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.1";
+	private const string Vectura1 = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.2";
 
 	private TestCluster _cluster = null!;
 
@@ -45,7 +45,7 @@ public class VecturaTests
 		// Along the table: VecturaDB opens the data of Chroma 1.5.9, and the data is of VecturaDB, on the claim too.
 		await _cluster.UpdateAsync("vectura", s => s.Spec.Image = Vectura1);
 		var vectura = await _cluster.WaitReadyAsync("vectura", Vectura1);
-		Assert.That((vectura.Status!.DataProduct, vectura.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.1")));
+		Assert.That((vectura.Status!.DataProduct, vectura.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.2")));
 		var claim = await _cluster.Client.GetAsync<V1PersistentVolumeClaim>("vectura-1", _cluster.Namespace);
 		Assert.That(claim!.Metadata.Annotations[Labels.ClaimDataProduct], Is.EqualTo("vecturadb"));
 		Assert.That(await CountAsync("vectura"), Is.EqualTo(300));
@@ -53,7 +53,7 @@ public class VecturaTests
 		// Back to Chroma: refused, and VecturaDB keeps running.
 		await _cluster.UpdateAsync("vectura", s => s.Spec.Image = Image159);
 		var refused = await _cluster.WaitAsync("vectura", c => Condition(c, "UpgradeBlocked")?.Reason == "ProductChange", TimeSpan.FromMinutes(1), "ProductChange");
-		Assert.That(Condition(refused, "UpgradeBlocked")!.Message, Does.Contain("not visible until the data goes back to VecturaDB"));
+		Assert.That(Condition(refused, "UpgradeBlocked")!.Message, Does.Contain("but not the sparse vectors, which stay in the data"));
 		Assert.That((await _cluster.PodAsync("vectura-1"))!.Spec.Containers[0].Image, Is.EqualTo(Vectura1));
 
 		// With the annotation, Chroma runs on the data, with the warning; the dense records are there.
@@ -77,7 +77,7 @@ public class VecturaTests
 		await _cluster.WaitReadyAsync("older", Image153);
 		await _cluster.UpdateAsync("older", s => s.Spec.Image = Vectura1);
 		var refused = await _cluster.WaitAsync("older", c => Condition(c, "UpgradeBlocked")?.Reason == "ProductChangeNotKnown", TimeSpan.FromMinutes(1), "ProductChangeNotKnown");
-		Assert.That(Condition(refused, "UpgradeBlocked")!.Message, Does.Contain("Chroma 1.5.9 to VecturaDB 1.0.0-preview.1"));
+		Assert.That(Condition(refused, "UpgradeBlocked")!.Message, Does.Contain("Chroma 1.5.9 to VecturaDB 1.0.0-preview.2"));
 		Assert.That((await _cluster.PodAsync("older-1"))!.Spec.Containers[0].Image, Is.EqualTo(Image153));
 	}
 

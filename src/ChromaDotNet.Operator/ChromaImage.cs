@@ -6,7 +6,7 @@ namespace ChromaDotNet.Operator;
 /// <summary>
 /// The version in an image reference. The operator cannot ask the server: /api/v2/version answers "1.0.0" for every 1.x, of Chroma
 /// and of VecturaDB alike. Only exact versions are accepted, like docker.io/chromadb/chroma:1.5.9 or ...:1.5.9@sha256:..., and the
-/// previews of VecturaDB, like ghcr.io/vecturadb/vecturadb:1.0.0-preview.1; latest, preview and the development images, like
+/// previews of VecturaDB, like ghcr.io/vecturadb/vecturadb:1.0.0-preview.2; latest, preview and the development images, like
 /// 1.5.10.dev313, are refused, since the version of the data must be known.
 /// </summary>
 internal static partial class ChromaImage

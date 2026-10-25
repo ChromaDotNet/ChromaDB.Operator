@@ -23,7 +23,7 @@ Community project, not affiliated with Chroma.
   refused, because Chroma migrates the data at its start and an older version does not open it again. Version 1.0.0, for example,
   panics on data opened by 1.5.9.
 - The image needs an exact version tag, like `docker.io/chromadb/chroma:1.5.9`, or a preview of VecturaDB, like
-  `ghcr.io/vecturadb/vecturadb:1.0.0-preview.1`. The API refuses `latest`, `preview` and the development tags.
+  `ghcr.io/vecturadb/vecturadb:1.0.0-preview.2`. The API refuses `latest`, `preview` and the development tags.
 - A single-node Chroma can run VecturaDB, a fork of Chroma with the same API, on the same kind of resource and the same data. The
   data passes from Chroma to VecturaDB, and from a VecturaDB to a newer one, only along the passages the operator knows, each tried on
   a volume first: see [VecturaDB](#vecturadb).
@@ -216,12 +216,12 @@ the version of the data unknown, as an image like `latest` does (see above).
 
 ## VecturaDB
 
-[VecturaDB](https://github.com/VecturaDB/VecturaDB) is a fork of Chroma with the same API, which adds sparse vectors, BM25 and Search
-to the single node. Its image starts as the one of Chroma, on the same `/data`, so a single-node Chroma runs it with its image:
+[VecturaDB](https://github.com/VecturaDB/VecturaDB) is a fork of Chroma with the same API, which adds sparse vectors, BM25, the
+Search API and collection fork to the single node of Chroma. Its image starts as the one of Chroma, on the same `/data`, so a single-node Chroma runs it with its image:
 
 ```yaml
 spec:
-  image: ghcr.io/vecturadb/vecturadb:1.0.0-preview.1
+  image: ghcr.io/vecturadb/vecturadb:1.0.0-preview.2
   storage:
     size: 10Gi
 ```
@@ -233,23 +233,26 @@ VecturaDB. For a mirror, `spec.product` says it. An image of an unknown reposito
 
 **The data knows its product.** `status.dataProduct` and the annotation `chroma.chromadotnet.org/data-product` of the claim say which
 product opened the data last, and `dataVersion` is a version of it. The versions of two products are never compared: VecturaDB
-`1.0.0-preview.1` on data of Chroma `1.5.9` is not a downgrade. A claim without the annotation is of Chroma.
+`1.0.0-preview.2` on data of Chroma `1.5.9` is not a downgrade. A claim without the annotation is of Chroma.
 
 **The passages.** From Chroma to VecturaDB, and from a VecturaDB to a newer VecturaDB, the operator allows only the passages of its
 table, each one tried first on a volume with real data. Everything else is refused, without deductions from the versions:
 
 | From | To | Trial |
 |---|---|---|
-| Chroma 1.5.9 | VecturaDB 1.0.0-preview.1 | A volume opened by Chroma 1.5.9 with 200 dense records, then by VecturaDB: the dense records intact, with the same ids and results; BM25 and sparse vectors written and searched. |
+| Chroma 1.5.9 | VecturaDB 1.0.0-preview.2 | A volume opened by Chroma 1.5.9 with 200 dense records, then by VecturaDB: the dense records intact, with the same ids and results; BM25 and sparse vectors written and searched. |
 
 A passage outside the table keeps the running Pod, and `UpgradeBlocked` says why: `ProductChangeNotKnown` from Chroma,
 `UpgradeNotKnown` within VecturaDB. A new release of VecturaDB enters the table after the trial of the passage from the one before.
 
-**Back to Chroma.** Chroma 1.5.9 opens data of VecturaDB and serves the dense records, but not all of it: Search and writes to sparse
-collections are not available, and the sparse vectors stay on disk but are not visible until the data goes back to VecturaDB, where
-they are intact. The passage is refused (`ProductChange`) without the annotation `chroma.chromadotnet.org/allow-product-change: "true"`.
-With it, `UpgradeBlocked` stays `False` with the reason `ProductChangeAllowed` and the same explanation. The data is then of Chroma,
-and goes back to VecturaDB along the table.
+**Back to Chroma.** Chroma 1.5.9 opens data of VecturaDB and reads its records, documents and metadata, but not the sparse vectors,
+which stay in the data. Writing with Chroma to collections with BM25 fails with the Python client, and other clients write records
+without their BM25 vectors, or leave the old ones on the documents they change. The [guide of VecturaDB](https://vecturadb.org/leaving-chroma-cloud/to-vecturadb.html) has what was
+measured, and the remedy; its advice is not to write with Chroma to data of VecturaDB that uses sparse vectors or BM25.
+
+The passage is refused (`ProductChange`) without the annotation `chroma.chromadotnet.org/allow-product-change: "true"`. With it,
+and while Chroma runs on the data, `UpgradeBlocked` stays `False` with the reason `ProductChangeAllowed` and the same explanation.
+Back to VecturaDB, the data goes along the table.
 
 ## A distributed Chroma
 

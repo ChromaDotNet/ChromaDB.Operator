@@ -101,17 +101,20 @@ internal static class Passages
 	/// <summary>The passages the operator allows. A new release of VecturaDB adds its row after a trial of the passage of the data.</summary>
 	public static readonly IReadOnlyList<Passage> Known =
 	[
-		new(Products.Chroma, "1.5.9", Products.VecturaDB, "1.0.0-preview.1",
-			"25/10/2026, k3d, a local-path volume opened by Chroma 1.5.9 with 200 dense records, then by VecturaDB 1.0.0-preview.1: the dense " +
+		new(Products.Chroma, "1.5.9", Products.VecturaDB, "1.0.0-preview.2",
+			"25/10/2026, k3d, a local-path volume opened by Chroma 1.5.9 with 200 dense records, then by VecturaDB 1.0.0-preview.2: the dense " +
 			"records intact, with the same ids and results; BM25 and sparse vectors written and searched; two runs with the same outcome."),
 	];
 
 	/// <summary>
-	/// The text of the decision on VecturaDB to Chroma: what a passage to Chroma does to data opened by VecturaDB, as measured with
-	/// Chroma 1.5.9 and VecturaDB 1.0.0-preview.1. The sparse vectors are not lost: Chroma does not see them.
+	/// What a passage to Chroma does to data opened by VecturaDB, as measured with Chroma 1.5.9 and as the guide of VecturaDB says: the
+	/// records stay, the sparse vectors too, but Chroma does not read them, and its writes leave records without their BM25 vectors.
 	/// </summary>
 	public const string ToChromaEffect =
-		"On Chroma, Search and writes to sparse collections are not available, and the sparse vectors stay on disk but are not visible until the data goes back to VecturaDB, where they are intact.";
+		"Chroma reads the records, documents and metadata, but not the sparse vectors, which stay in the data, and sparse, BM25 and Search queries fail. " +
+		"Writes from Chroma to collections with BM25 fail with the Python client, and other clients write records without their BM25 vectors, or keep " +
+		"the old ones, until their documents are written again with VecturaDB. Do not write with Chroma to data of VecturaDB that uses sparse vectors " +
+		"or BM25: https://vecturadb.org/leaving-chroma-cloud/to-vecturadb.html";
 
 	/// <param name="image">The image, for the messages.</param>
 	public static PassageCheck Check(DataState data, string product, ImageVersion version, string image, Flags flags)

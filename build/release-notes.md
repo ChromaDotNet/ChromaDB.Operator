@@ -18,7 +18,7 @@ Chroma, on an external Postgres and an external S3 bucket.
 - The images of Chroma for the distributed mode need CPUs with AVX-512.
 
 **VecturaDB, preview.** A single-node Chroma can run [VecturaDB](https://github.com/VecturaDB/VecturaDB), which adds sparse vectors,
-BM25 and Search to the single node of Chroma, with the same API and on the same data.
+BM25, the Search API and collection fork to the single node of Chroma, with the same API and on the same data.
 - The data passes from Chroma to VecturaDB only along the passages the operator knows, each one tried on a volume first.
 - Back to Chroma needs an annotation, and the status says what Chroma does not see of the data.
 
