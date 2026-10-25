@@ -104,6 +104,14 @@ internal static class Passages
 		new(Products.Chroma, "1.5.9", Products.VecturaDB, "1.0.0-preview.2",
 			"25/10/2026, k3d, a local-path volume opened by Chroma 1.5.9 with 200 dense records, then by VecturaDB 1.0.0-preview.2: the dense " +
 			"records intact, with the same ids and results; BM25 and sparse vectors written and searched; two runs with the same outcome."),
+		new(Products.Chroma, "1.5.9", Products.VecturaDB, "1.0.0-preview.3",
+			"25/10/2026, k3d, a local-path volume opened by Chroma 1.5.9 with 200 dense records, then by VecturaDB 1.0.0-preview.3: the dense " +
+			"records intact, with the same ids and results; BM25 and sparse vectors written and searched; two runs with the same outcome, the " +
+			"same as with 1.0.0-preview.2."),
+		new(Products.VecturaDB, "1.0.0-preview.2", Products.VecturaDB, "1.0.0-preview.3",
+			"25/10/2026, k3d, a local-path volume with 200 dense records, a BM25 collection and explicit sparse vectors written by VecturaDB " +
+			"1.0.0-preview.2, also on data of Chroma 1.5.9, then opened by VecturaDB 1.0.0-preview.3: the records intact, the BM25 and sparse " +
+			"searches with the same results, new records written and found; two runs with the same outcome."),
 	];
 
 	/// <summary>
