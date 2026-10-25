@@ -42,4 +42,67 @@ public class ResyncTests
 		await new Resync(client, (_, _, _, _, _, _) => Task.FromResult(false), logger).ResyncOnceAsync(CancellationToken.None);
 		Assert.That(logger.Events, Is.EqualTo(new[] { 17 }));
 	}
+
+	private static readonly DateTime T0 = new(2026, 10, 25, 9, 0, 0, DateTimeKind.Utc);
+
+	private static V1Alpha1Chroma Named(string name)
+	{
+		var chroma = NewChroma();
+		chroma.Metadata.Name = name;
+		chroma.Metadata.Uid = "uid-" + name;
+		return chroma;
+	}
+
+	// KubeOps reconciles one entity at a time under a lock of its own: one Chroma is stuck also while the others pass.
+	[Test]
+	public void OneChromaWithoutPassesIsStuckWhileOthersPass()
+	{
+		var (stuck, passing) = (Named("stuck"), Named("passing"));
+		var liveness = new Liveness();
+		liveness.Listed([stuck, passing], T0);
+		for (var minute = 1; minute <= 6; minute++)
+			liveness.PassDone(passing, T0 + TimeSpan.FromMinutes(minute));
+		var now = T0 + TimeSpan.FromMinutes(6);
+		Assert.Multiple(() =>
+		{
+			Assert.That(liveness.Stuck(leading: true, now), Does.StartWith("rag/stuck"));
+			Assert.That(liveness.Stuck(leading: false, now), Is.Null, "a replica that does not lead reconciles nothing");
+		});
+	}
+
+	[Test]
+	public void FiveMinutesWithoutPassesAreNotYetStuck()
+	{
+		var liveness = new Liveness();
+		liveness.Listed([Named("a")], T0);
+		Assert.Multiple(() =>
+		{
+			Assert.That(liveness.Stuck(leading: true, T0 + Liveness.Threshold), Is.Null);
+			Assert.That(liveness.Stuck(leading: true, T0 + Liveness.Threshold + TimeSpan.FromSeconds(1)), Is.Not.Null);
+		});
+	}
+
+	// A Chroma counts from its first listing, and no more once a resync does not list it, as after its deletion.
+	[Test]
+	public void ChromaCountsWhileTheResyncListsIt()
+	{
+		var liveness = new Liveness();
+		liveness.Listed([Named("gone")], T0);
+		liveness.Listed([Named("new")], T0 + TimeSpan.FromMinutes(4));
+		Assert.Multiple(() =>
+		{
+			Assert.That(liveness.Stuck(leading: true, T0 + TimeSpan.FromMinutes(6)), Is.Null);
+			Assert.That(liveness.Stuck(leading: true, T0 + TimeSpan.FromMinutes(10)), Does.StartWith("rag/new"));
+		});
+	}
+
+	// A replica that starts leading has had no pass yet on the Chroma resources it listed while it led before.
+	[Test]
+	public void LeadingAgainCountsFromThen()
+	{
+		var liveness = new Liveness();
+		liveness.Listed([Named("a")], T0);
+		liveness.StartedLeading(T0 + TimeSpan.FromMinutes(4));
+		Assert.That(liveness.Stuck(leading: true, T0 + TimeSpan.FromMinutes(6)), Is.Null);
+	}
 }

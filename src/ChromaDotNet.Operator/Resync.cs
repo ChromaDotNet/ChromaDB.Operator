@@ -17,7 +17,7 @@ namespace ChromaDotNet.Operator;
 /// leader puts them in the queue: the queue of another replica takes nothing.
 /// </summary>
 internal sealed partial class Resync(IKubernetesClient client, EntityQueue<V1Alpha1Chroma> queue, ILogger<Resync> logger,
-	LeaderElector? elector = null)
+	LeaderElector? elector = null, Liveness? liveness = null)
 	: BackgroundService
 {
 	public static readonly TimeSpan Period = TimeSpan.FromSeconds(60);
@@ -45,6 +45,7 @@ internal sealed partial class Resync(IKubernetesClient client, EntityQueue<V1Alp
 		if (elector?.IsLeader() == false)
 			return;
 		var chromas = (await client.ListAsync<V1Alpha1Chroma>(cancellationToken: cancellationToken)).Where(c => c.Metadata.DeletionTimestamp is null).ToList();
+		liveness?.Listed(chromas, DateTime.UtcNow);
 		foreach (var chroma in chromas)
 		{
 			// The queue refuses an entry while its intake is suspended, and says so only at Trace: the warning keeps it.

@@ -82,6 +82,10 @@ One operator works at a time. The Deployment replaces its Pod with the strategy 
 another one waits. When the leader goes, another replica takes over once the Lease expires (15 seconds). The liveness and readiness
 probes call `/healthz` on port 8080.
 
+The operator puts every Chroma in its queue again once a minute, from a list read from the API. `/healthz` fails when the leader has
+a Chroma with no pass for 5 minutes, and Kubernetes then restarts the operator. On AKS a change of a Chroma once waited
+for a restart of the operator to be applied. The cause is not known, and these two checks cover it.
+
 ## Uninstall
 
 `kubectl delete -f deploy/chroma-operator.yaml` also deletes the CustomResourceDefinition, and with it every Chroma of the

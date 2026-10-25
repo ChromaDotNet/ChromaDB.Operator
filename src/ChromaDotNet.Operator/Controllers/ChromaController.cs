@@ -42,7 +42,8 @@ namespace ChromaDotNet.Operator.Controllers;
 	Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Watch | RbacVerb.Create | RbacVerb.Update | RbacVerb.Patch | RbacVerb.Delete)]
 [GenericRbac(Groups = ["coordination.k8s.io"], Resources = ["leases"],
 	Verbs = RbacVerb.Get | RbacVerb.Watch | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
-public sealed class ChromaController(IKubernetesClient client, OperatorOptions options, ILogger<ChromaController> logger, IDependencyChecks? checks = null)
+public sealed class ChromaController(IKubernetesClient client, OperatorOptions options, ILogger<ChromaController> logger, IDependencyChecks? checks = null,
+	Liveness? liveness = null)
 	: IEntityController<V1Alpha1Chroma>
 {
 	private readonly DistributedReconciler _distributed = new(client, options, checks ?? new DependencyChecks(), logger);
@@ -76,6 +77,10 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 		catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
 		{
 			return await FailedAsync(server, e, cancellationToken);
+		}
+		finally
+		{
+			liveness?.PassDone(server, DateTime.UtcNow);
 		}
 	}
 

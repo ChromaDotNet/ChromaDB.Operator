@@ -22,4 +22,9 @@ BM25, the Search API and collection fork to the single node of Chroma, with the 
 - The data passes from Chroma to VecturaDB only along the passages the operator knows, each one tried on a volume first.
 - Back to Chroma needs an annotation, and the status says what Chroma does not see of the data.
 
+**Known limit.** On AKS a change of a Chroma once reached the operator and was applied only after a restart of the operator. The cause
+is not known. Two safety nets cover it:
+- every Chroma goes back into the queue of the operator once a minute;
+- when a Chroma has had no pass for 5 minutes, the liveness probe of the operator fails and Kubernetes restarts the operator.
+
 See the [README](https://github.com/ChromaDotNet/ChromaDB.Operator#readme) for the fields, the status and the limits.

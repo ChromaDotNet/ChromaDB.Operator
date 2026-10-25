@@ -150,5 +150,17 @@ public class ErrorTests
 		Assert.That((await Controller().ReconcileAsync(_server, CancellationToken.None)).RequeueAfter, Is.EqualTo(TimeSpan.FromSeconds(10)));
 	}
 
+	// A pass that fails is a pass for the liveness too: the queue is not stuck.
+	[Test]
+	public async Task FailedPassCountsForTheLiveness()
+	{
+		_client.GetAsync<V1Pod>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException("connection refused"));
+		var liveness = new Liveness();
+		liveness.Listed([_server], DateTime.UtcNow - TimeSpan.FromMinutes(10));
+		Assert.That(liveness.Stuck(leading: true, DateTime.UtcNow), Is.Not.Null);
+		await new ChromaController(_client, Defaults, NullLogger<ChromaController>.Instance, liveness: liveness).ReconcileAsync(_server, CancellationToken.None);
+		Assert.That(liveness.Stuck(leading: true, DateTime.UtcNow), Is.Null);
+	}
+
 	private ChromaController Controller() => new(_client, Defaults, NullLogger<ChromaController>.Instance);
 }
