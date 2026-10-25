@@ -35,10 +35,22 @@ use() { # commit chart_version
 # The corrections to a config file of Chroma, as the operator makes them in DistributedConfig:
 # 1. every storage block from the Minio mode, with its fixed development keys and endpoint, to the AWS mode, which reads AWS_*
 #    from the environment; the block of the garbage collector has no credentials at all (Minio by default), so it gets them;
+#    the client of the work queue where the compactor (flat) and fn-consumer (under fn_consumer) read it, not under grpc;
 # 2. the namespace of the Chroma in the names of the services and of the MemberLists;
 # 3. the bucket of the spec, after the namespace, so that a bucket ending in .chroma stays as it is.
 configure() { # file namespace bucket blocks: the number of storage blocks without credentials, 1 in the workers' file
   sed 's/credentials: "Minio"/credentials: "AWS"/' "$1" |
+    awk -v workers="$4" '
+      /^[a-z_]+:$/ { section = $0 }
+      workers == 1 && $0 == "  work_queue:" && (section == "compaction_service:" || section == "fn_consumer_service:") { pending = 1; next }
+      pending == 1 && $0 == "    grpc:" {
+        if (section == "compaction_service:") { print "  work_queue:"; flat = 1 } else { print "  fn_consumer:"; print "    work_queue:"; flat = 0 }
+        pending = 0; inside = 1; moved++; next
+      }
+      pending == 1 { print "  work_queue:"; pending = 0 }
+      inside == 1 && /^      / { print (flat ? substr($0, 3) : $0); next }
+      { inside = 0; print }
+      END { if (workers == 1 && moved != 2) exit 1 }' |
     awk -v expected="$4" '{ print }
       $0 == "  storage_config:" { block = 1; next }
       block == 1 && $0 == "    s3:" { block = 2; next }

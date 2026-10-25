@@ -97,6 +97,21 @@ public class ChartTests
 		Assert.That(configs, Has.None.Contain("team-a-s3").And.None.Contain("team-a-pg").And.None.Contain("$PG_PASSWORD"));
 	}
 
+	// The compactor reads compaction_service.work_queue with the fields flat, fn-consumer fn_consumer_service.fn_consumer.work_queue: with
+	// the block of the sample file, under grpc, both use their default host, which is in the namespace chroma only.
+	[Test]
+	public void WorkQueueClientsAreWhereTheServicesReadThem()
+	{
+		var worker = new DeserializerBuilder().Build().Deserialize<Dictionary<object, object>>(DistributedConfig.Worker(DistributedVersion.Known[0], "team-a", "vectors"));
+		static object? At(object node, params string[] path) =>
+			path.Aggregate((object?)node, (n, key) => n is IDictionary<object, object> map && map.TryGetValue(key, out var value) ? value : null);
+		Assert.That(At(worker, "compaction_service", "work_queue", "host"), Is.EqualTo("work-queue-service.team-a"));
+		Assert.That(At(worker, "compaction_service", "work_queue", "grpc"), Is.Null);
+		Assert.That(At(worker, "fn_consumer_service", "fn_consumer", "work_queue", "host"), Is.EqualTo("work-queue-service.team-a"));
+		Assert.That(At(worker, "fn_consumer_service", "work_queue"), Is.Null);
+		Assert.That(At(worker, "work_queue_service", "work_queue", "storage_path"), Is.EqualTo("workqueue_state.parquet"), "the work queue itself is left as it is");
+	}
+
 	// The namespace is written before the bucket: a bucket ending in .chroma stays as it is.
 	[Test]
 	public void BucketEndingInTheNamespaceOfTheChartStays()

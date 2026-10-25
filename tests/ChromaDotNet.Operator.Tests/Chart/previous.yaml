@@ -263,11 +263,10 @@ data:
         disabled_collections: [] # uuids to disable compaction for
         fetch_log_batch_size: 1000
       work_queue:
-        grpc:
-          host: "work-queue-service.chroma"
-          port: 50051
-          connect_timeout_ms: 10000
-          request_timeout_ms: 10000
+        host: "work-queue-service.chroma"
+        port: 50051
+        connect_timeout_ms: 10000
+        request_timeout_ms: 10000
       task_runner:
         enabled: true
       blockfile_provider:
@@ -481,8 +480,8 @@ data:
           port: 50051
           connect_timeout_ms: 60000
           request_timeout_ms: 60000
-      work_queue:
-        grpc:
+      fn_consumer:
+        work_queue:
           host: "work-queue-service.chroma"
           port: 50051
           connect_timeout_ms: 10000
@@ -756,11 +755,10 @@ data:
         disabled_collections: [] # uuids to disable compaction for
         fetch_log_batch_size: 1000
       work_queue:
-        grpc:
-          host: "work-queue-service.chroma"
-          port: 50051
-          connect_timeout_ms: 10000
-          request_timeout_ms: 10000
+        host: "work-queue-service.chroma"
+        port: 50051
+        connect_timeout_ms: 10000
+        request_timeout_ms: 10000
       task_runner:
         enabled: true
       blockfile_provider:
@@ -974,8 +972,8 @@ data:
           port: 50051
           connect_timeout_ms: 60000
           request_timeout_ms: 60000
-      work_queue:
-        grpc:
+      fn_consumer:
+        work_queue:
           host: "work-queue-service.chroma"
           port: 50051
           connect_timeout_ms: 10000
@@ -1249,11 +1247,10 @@ data:
         disabled_collections: [] # uuids to disable compaction for
         fetch_log_batch_size: 1000
       work_queue:
-        grpc:
-          host: "work-queue-service.chroma"
-          port: 50051
-          connect_timeout_ms: 10000
-          request_timeout_ms: 10000
+        host: "work-queue-service.chroma"
+        port: 50051
+        connect_timeout_ms: 10000
+        request_timeout_ms: 10000
       task_runner:
         enabled: true
       blockfile_provider:
@@ -1467,8 +1464,8 @@ data:
           port: 50051
           connect_timeout_ms: 60000
           request_timeout_ms: 60000
-      work_queue:
-        grpc:
+      fn_consumer:
+        work_queue:
           host: "work-queue-service.chroma"
           port: 50051
           connect_timeout_ms: 10000
@@ -1742,11 +1739,10 @@ data:
         disabled_collections: [] # uuids to disable compaction for
         fetch_log_batch_size: 1000
       work_queue:
-        grpc:
-          host: "work-queue-service.chroma"
-          port: 50051
-          connect_timeout_ms: 10000
-          request_timeout_ms: 10000
+        host: "work-queue-service.chroma"
+        port: 50051
+        connect_timeout_ms: 10000
+        request_timeout_ms: 10000
       task_runner:
         enabled: true
       blockfile_provider:
@@ -1960,8 +1956,8 @@ data:
           port: 50051
           connect_timeout_ms: 60000
           request_timeout_ms: 60000
-      work_queue:
-        grpc:
+      fn_consumer:
+        work_queue:
           host: "work-queue-service.chroma"
           port: 50051
           connect_timeout_ms: 10000
@@ -2337,11 +2333,10 @@ data:
         disabled_collections: [] # uuids to disable compaction for
         fetch_log_batch_size: 1000
       work_queue:
-        grpc:
-          host: "work-queue-service.chroma"
-          port: 50051
-          connect_timeout_ms: 10000
-          request_timeout_ms: 10000
+        host: "work-queue-service.chroma"
+        port: 50051
+        connect_timeout_ms: 10000
+        request_timeout_ms: 10000
       task_runner:
         enabled: true
       blockfile_provider:
@@ -2555,8 +2550,8 @@ data:
           port: 50051
           connect_timeout_ms: 60000
           request_timeout_ms: 60000
-      work_queue:
-        grpc:
+      fn_consumer:
+        work_queue:
           host: "work-queue-service.chroma"
           port: 50051
           connect_timeout_ms: 10000
@@ -2830,11 +2825,10 @@ data:
         disabled_collections: [] # uuids to disable compaction for
         fetch_log_batch_size: 1000
       work_queue:
-        grpc:
-          host: "work-queue-service.chroma"
-          port: 50051
-          connect_timeout_ms: 10000
-          request_timeout_ms: 10000
+        host: "work-queue-service.chroma"
+        port: 50051
+        connect_timeout_ms: 10000
+        request_timeout_ms: 10000
       task_runner:
         enabled: true
       blockfile_provider:
@@ -3048,8 +3042,8 @@ data:
           port: 50051
           connect_timeout_ms: 60000
           request_timeout_ms: 60000
-      work_queue:
-        grpc:
+      fn_consumer:
+        work_queue:
           host: "work-queue-service.chroma"
           port: 50051
           connect_timeout_ms: 10000
