@@ -8,7 +8,7 @@ resources:
 - operator-role.yaml
 - operator-role-binding.yaml
 - deployment.yaml
-- chromaservers_chroma_chromadotnet_org.yaml
+- chromas_chroma_chromadotnet_org.yaml
 - namespace.yaml
 images:
 - name: operator

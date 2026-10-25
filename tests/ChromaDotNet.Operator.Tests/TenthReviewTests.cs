@@ -14,7 +14,7 @@ public class TenthReviewTests
 	[Test]
 	public void PodWithoutAVersionMakesTheDataVersionUnknown()
 	{
-		var server = Server(Image159, dataVersion: "1.0.0", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.0.0", runningImage: Image159);
 		var pod = RunningPod(server, Image159);
 		pod.Spec.Containers[0].Image = Unversioned;
 		var outcome = Reconciliation.Decide(server, pod, null, Now, Defaults);
@@ -36,7 +36,7 @@ public class TenthReviewTests
 	[Test]
 	public void AnnotationResolvesAnUnknownVersion()
 	{
-		var server = Server(Image159, dataVersion: "1.0.0", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.0.0", runningImage: Image159);
 		server.Status!.DataVersionUnknown = true;
 		server.Status.DataVersionUnknownIncident = "a1b2c3d4";
 		server.Metadata.Annotations = new Dictionary<string, string> { [Labels.DeclaredDataVersion] = "1.5.9/a1b2c3d4" };
@@ -47,11 +47,11 @@ public class TenthReviewTests
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.Create));
 	}
 
-	// A retained claim of data of an unknown version: a new ChromaServer on it starts nothing.
+	// A retained claim of data of an unknown version: a new Chroma on it starts nothing.
 	[Test]
 	public void RetainedClaimOfAnUnknownVersion()
 	{
-		var outcome = Reconciliation.Decide(Server(Image159), null, "1.5.3", Now, Defaults, pvcDataVersionUnknownIncident: "a1b2c3d4");
+		var outcome = Reconciliation.Decide(NewChroma(Image159), null, "1.5.3", Now, Defaults, pvcDataVersionUnknownIncident: "a1b2c3d4");
 		Assert.That(outcome.Status.DataVersionUnknown, Is.True);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 	}
@@ -60,7 +60,7 @@ public class TenthReviewTests
 	[Test]
 	public void InvalidAnnotationResolvesNothing()
 	{
-		var server = Server(Image159, dataVersion: "1.0.0", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.0.0", runningImage: Image159);
 		server.Status!.DataVersionUnknown = true;
 		server.Status.DataVersionUnknownIncident = "a1b2c3d4";
 		server.Metadata.Annotations = new Dictionary<string, string> { [Labels.DeclaredDataVersion] = "latest/a1b2c3d4" };

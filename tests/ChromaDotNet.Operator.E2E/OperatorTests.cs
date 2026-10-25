@@ -29,7 +29,7 @@ public class OperatorTests
 		{
 			await _cluster.ScaleOperatorAsync(2);
 			var leader = await _cluster.WaitLeaseHolderAsync(except: null);
-			await _cluster.CreateAsync(TestCluster.NewServer("lead", Image159));
+			await _cluster.CreateAsync(TestCluster.NewChroma("lead", Image159));
 			await _cluster.WaitReadyAsync("lead", Image159);
 			var creators = await _cluster.OperatorPodsThatLoggedAsync("lead: creating Pod lead-1");
 			Assert.That(creators, Is.EqualTo(new[] { leader }), "only the leader created the Pod");
@@ -58,7 +58,7 @@ public class OperatorTests
 	public async Task PodRewrittenByAWebhookStays()
 	{
 		await CreateRewritePolicyAsync();
-		await _cluster.CreateAsync(TestCluster.NewServer("mirrored", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("mirrored", Image159));
 		var ready = await _cluster.WaitAsync("mirrored", s => s.Status?.Phase == "Ready", what: "Ready");
 		var pod = (await _cluster.PodAsync("mirrored-1"))!;
 		Assert.That(pod.Spec.Containers.Single(c => c.Name == "chroma").Image, Is.EqualTo("chromadb/chroma:1.5.9"), "rewritten by the webhook");

@@ -12,8 +12,8 @@ public class SeventhReviewTests
 	[Test]
 	public void BlockedServerRestartsWithTheImageOfItsLastPod()
 	{
-		var server = Server(Image153, dataVersion: "1.5.9", runningImage: Image153);
-		var pod = RunningPod(Server(Image159), Image159, ready: false);
+		var server = NewChroma(Image153, dataVersion: "1.5.9", runningImage: Image153);
+		var pod = RunningPod(NewChroma(Image159), Image159, ready: false);
 		pod.Status.Phase = "Failed";
 		var first = Reconciliation.Decide(server, pod, null, Now, Defaults);
 		Assert.That(first.Action, Is.EqualTo(PodAction.Delete));
@@ -30,7 +30,7 @@ public class SeventhReviewTests
 	[Test]
 	public void RecoveryImageIsCheckedAgain()
 	{
-		var server = Server(Image153, dataVersion: "1.5.9", runningImage: Image153);
+		var server = NewChroma(Image153, dataVersion: "1.5.9", runningImage: Image153);
 		server.Status!.RecoveryImage = Image159;
 		var outcome = Reconciliation.Decide(server, null, null, Now, Defaults);
 		Assert.That(outcome.DesiredPod?.Spec.Containers[0].Image, Is.EqualTo(Image159), "allowed");

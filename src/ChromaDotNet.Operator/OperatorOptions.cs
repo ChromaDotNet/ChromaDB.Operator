@@ -5,11 +5,11 @@ namespace ChromaDotNet.Operator;
 /// <summary>
 /// The configuration of the operator, from the environment of its Deployment.
 /// <list type="bullet">
-/// <item><c>CHROMA_DEFAULT_IMAGE</c>: the image of a ChromaServer without spec.image, written into its spec at the first pass, so that
+/// <item><c>CHROMA_DEFAULT_IMAGE</c>: the image of a Chroma without spec.image, written into its spec at the first pass, so that
 /// a new version of the operator does not change the version of the servers already created. As CloudNativePG does with
 /// POSTGRES_IMAGE_NAME.</item>
-/// <item><c>CHROMA_ALLOWED_IMAGES</c>: the repositories a ChromaServer can use, separated by commas, or <c>*</c> for any. Who can
-/// create a ChromaServer chooses its image, and the operator runs it: without a list, a ChromaServer could run any image.</item>
+/// <item><c>CHROMA_ALLOWED_IMAGES</c>: the repositories a Chroma can use, separated by commas, or <c>*</c> for any. Who can
+/// create a Chroma chooses its image, and the operator runs it: without a list, a Chroma could run any image.</item>
 /// </list>
 /// </summary>
 public sealed class OperatorOptions

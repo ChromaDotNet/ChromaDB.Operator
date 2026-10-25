@@ -11,7 +11,7 @@ public class SecondReviewTests
 	[Test]
 	public void NewerPodRaisesTheDataVersionBeforeItStarts()
 	{
-		var server = Server(Image159, dataVersion: "1.5.3", runningImage: Image153);
+		var server = NewChroma(Image159, dataVersion: "1.5.3", runningImage: Image153);
 		var outcome = Reconciliation.Decide(server, null, null, Now, Defaults);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.Create));
 		Assert.That(outcome.Status.DataVersion, Is.EqualTo("1.5.9"));
@@ -21,8 +21,8 @@ public class SecondReviewTests
 	[Test]
 	public void RevertWhileTheNewerPodLooksNotStartedIsBlocked()
 	{
-		var server = Server(Image153, dataVersion: "1.5.9", runningImage: Image153);
-		var pod = RunningPod(Server(Image159), Image159, ready: false);
+		var server = NewChroma(Image153, dataVersion: "1.5.9", runningImage: Image153);
+		var pod = RunningPod(NewChroma(Image159), Image159, ready: false);
 		pod.Status.ContainerStatuses[0] = new V1ContainerStatus
 		{
 			Name = "chroma",
@@ -40,7 +40,7 @@ public class SecondReviewTests
 	[Test]
 	public void SidecarFirstDoesNotChangeTheImageOrTheDataVersion()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var pod = WithSidecar(RunningPod(server, Image159));
 		var outcome = Reconciliation.Decide(server, pod, null, Now, Defaults);
 		Assert.That(outcome.Status.Image, Is.EqualTo(Image159));
@@ -51,7 +51,7 @@ public class SecondReviewTests
 	[Test]
 	public void SidecarFirstDoesNotHideAFailingChroma()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var pod = WithSidecar(RunningPod(server, Image159, ready: false));
 		pod.Status.ContainerStatuses[1].State = new V1ContainerState { Waiting = new V1ContainerStateWaiting { Reason = "CrashLoopBackOff", Message = "panic" } };
 		var outcome = Reconciliation.Decide(server, pod, null, Now, Defaults);

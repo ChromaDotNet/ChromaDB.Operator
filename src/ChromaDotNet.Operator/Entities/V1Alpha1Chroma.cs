@@ -7,20 +7,35 @@ namespace ChromaDotNet.Operator.Entities;
 /// <summary>
 /// A single-node Chroma server: one Pod, its PersistentVolumeClaim for /data, a ConfigMap with the configuration and a Service.
 /// </summary>
-[KubernetesEntity(Group = Labels.Group, ApiVersion = "v1alpha1", Kind = "ChromaServer", PluralName = "chromaservers")]
-[KubernetesEntityShortNames("chroma")]
+[KubernetesEntity(Group = Labels.Group, ApiVersion = Version, Kind = KindName, PluralName = "chromas")]
 [GenericAdditionalPrinterColumn(".status.phase", "Phase", "string")]
 [GenericAdditionalPrinterColumn(".status.image", "Image", "string")]
 [GenericAdditionalPrinterColumn(".status.dataVersion", "Data", "string")]
 [GenericAdditionalPrinterColumn(".metadata.creationTimestamp", "Age", "date")]
 // The Service <name>-rw is a DNS label of at most 63 characters: the API refuses names that would not give one.
 [ValidationRule("self.metadata.name.size() <= 60 && self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$')",
-	message: "The name of a ChromaServer is a DNS label of at most 60 characters: lowercase letters, digits and '-', starting with a letter and ending with a letter or a digit.")]
-public sealed partial class V1Alpha1ChromaServer
-	: CustomKubernetesEntity<V1Alpha1ChromaServer.ServerSpec, V1Alpha1ChromaServer.ServerStatus>
+	message: "The name of a Chroma is a DNS label of at most 60 characters: lowercase letters, digits and '-', starting with a letter and ending with a letter or a digit.")]
+public sealed partial class V1Alpha1Chroma
+	: CustomKubernetesEntity<V1Alpha1Chroma.ChromaSpec, V1Alpha1Chroma.ChromaStatus>
 {
-	public sealed class ServerSpec
+	public const string KindName = "Chroma";
+	public const string Version = "v1alpha1";
+
+	public sealed class ChromaSpec
 	{
+		public const string SingleNode = "single-node";
+		public const string Distributed = "distributed";
+
+		/// <summary>
+		/// single-node, the default, or distributed. It does not change after the creation, as in the operator of Milvus: the data of the
+		/// two modes are not the same.
+		/// </summary>
+		[Description("single-node (default): one Chroma server, with its Pod and its PersistentVolumeClaim. distributed: the components of the Helm chart of Chroma; not implemented yet. It cannot change after the creation.")]
+		[Pattern("^(single-node|distributed)$")]
+		[DefaultValue(SingleNode)]
+		[ValidationRule("self == oldSelf", message: "spec.mode cannot change after creation: the data of single-node and distributed Chroma are not the same; create a new Chroma and copy the data with chroma copy.")]
+		public string Mode { get; set; } = SingleNode;
+
 		/// <summary>The image of Chroma with an exact version tag, like docker.io/chromadb/chroma:1.5.9; a digest can follow it.</summary>
 		[Pattern(ChromaImage.Pattern)]
 		[Description("The image of Chroma with an exact version tag, like docker.io/chromadb/chroma:1.5.9, optionally followed by @sha256:<digest>. latest and development tags are refused. Empty: the default image of the operator, written here at the first pass. It must be in the repositories the operator allows.")]
@@ -43,7 +58,7 @@ public sealed partial class V1Alpha1ChromaServer
 		[Description("The Service in front of the Pod.")]
 		public ServiceSpec? Service { get; set; }
 
-		[Description("Retain (default) keeps the PersistentVolumeClaim when the ChromaServer is deleted; Delete deletes it with the data.")]
+		[Description("Retain (default) keeps the PersistentVolumeClaim when the Chroma is deleted; Delete deletes it with the data.")]
 		[Pattern("^(Retain|Delete)$")]
 		public string? PvcDeletionPolicy { get; set; }
 
@@ -88,7 +103,7 @@ public sealed partial class V1Alpha1ChromaServer
 		public IDictionary<string, string>? Annotations { get; set; }
 	}
 
-	public sealed class ServerStatus
+	public sealed class ChromaStatus
 	{
 		[Description("Creating, Ready, Updating or Failed.")]
 		public string? Phase { get; set; }

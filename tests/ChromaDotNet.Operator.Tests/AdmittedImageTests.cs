@@ -23,7 +23,7 @@ public class AdmittedImageTests
 	[Test]
 	public void PodWithTheAdmittedImageStays()
 	{
-		var server = Server(Image159, dataVersion: "1.5.9", runningImage: Rewritten);
+		var server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: Rewritten);
 		var pod = RunningPod(server, Image159);
 		pod.Spec.Containers[0].Image = Rewritten;
 		pod.Metadata.Annotations[Labels.AdmittedImage] = Rewritten;
@@ -35,7 +35,7 @@ public class AdmittedImageTests
 	[Test]
 	public void ImageChangedAfterTheAdmissionIsReplaced()
 	{
-		var server = Server(Image159, dataVersion: "1.5.9", runningImage: Rewritten);
+		var server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: Rewritten);
 		var pod = RunningPod(server, Image159);
 		pod.Spec.Containers[0].Image = "ghcr.io/chroma-core/chroma:1.5.9";
 		pod.Metadata.Annotations[Labels.AdmittedImage] = Rewritten;
@@ -45,7 +45,7 @@ public class AdmittedImageTests
 	[Test]
 	public void RewrittenImageWithoutTheAnnotationIsReplaced()
 	{
-		var server = Server(Image159, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159);
 		var pod = RunningPod(server, Image159);
 		pod.Spec.Containers[0].Image = Rewritten;
 		Assert.That(Reconciliation.Decide(server, pod, null, Now, Defaults).Action, Is.EqualTo(PodAction.Delete));
@@ -55,15 +55,15 @@ public class AdmittedImageTests
 	[Test]
 	public async Task CreatedPodGetsTheAdmittedImage()
 	{
-		var server = Server();
+		var server = NewChroma();
 		server.ApiVersion = "chroma.chromadotnet.org/v1alpha1";
-		server.Kind = "ChromaServer";
+		server.Kind = "Chroma";
 		using var client = Substitute.For<IKubernetesClient>();
 		client.CreateAsync(Arg.Any<V1ConfigMap>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1ConfigMap>());
 		client.CreateAsync(Arg.Any<V1Service>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Service>());
 		client.CreateAsync(Arg.Any<V1PersistentVolumeClaim>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1PersistentVolumeClaim>());
 		client.UpdateAsync(Arg.Any<V1PersistentVolumeClaim>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1PersistentVolumeClaim>());
-		client.UpdateStatusAsync(Arg.Any<V1Alpha1ChromaServer>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1ChromaServer>());
+		client.UpdateStatusAsync(Arg.Any<V1Alpha1Chroma>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1Chroma>());
 		client.CreateAsync(Arg.Any<V1Pod>(), Arg.Any<CancellationToken>()).Returns(call =>
 		{
 			var admitted = k8s.KubernetesJson.Deserialize<V1Pod>(k8s.KubernetesJson.Serialize(call.Arg<V1Pod>()));
@@ -71,7 +71,7 @@ public class AdmittedImageTests
 			return admitted;
 		});
 		client.UpdateAsync(Arg.Any<V1Pod>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Pod>());
-		await new ChromaServerController(client, Defaults, NullLogger<ChromaServerController>.Instance).ReconcileAsync(server, CancellationToken.None);
+		await new ChromaController(client, Defaults, NullLogger<ChromaController>.Instance).ReconcileAsync(server, CancellationToken.None);
 		await client.Received(1).UpdateAsync(Arg.Is<V1Pod>(p => p.Metadata.Annotations[Labels.AdmittedImage] == Rewritten), Arg.Any<CancellationToken>());
 	}
 
@@ -79,7 +79,7 @@ public class AdmittedImageTests
 	[Test]
 	public async Task AdmittedImageIsWrittenAfterAConflict()
 	{
-		var (client, server) = NewServerWithWebhook();
+		var (client, server) = NewChromaWithWebhook();
 		V1Pod? created = null;
 		client.GetAsync<V1Pod>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(_ => created);
 		client.CreateAsync(Arg.Any<V1Pod>(), Arg.Any<CancellationToken>()).Returns(call => created = Rewrite(call.Arg<V1Pod>()));
@@ -89,7 +89,7 @@ public class AdmittedImageTests
 		var reads = 0;
 		client.GetAsync<V1Pod>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(_ => ++reads == 1 ? null : Copy(created!));
 		using (client)
-			await new ChromaServerController(client, Defaults, NullLogger<ChromaServerController>.Instance).ReconcileAsync(server, CancellationToken.None);
+			await new ChromaController(client, Defaults, NullLogger<ChromaController>.Instance).ReconcileAsync(server, CancellationToken.None);
 		Assert.That(updates, Is.EqualTo(2));
 		await client.Received().UpdateAsync(Arg.Is<V1Pod>(p => p.Metadata.Annotations[Labels.AdmittedImage] == Rewritten), Arg.Any<CancellationToken>());
 	}
@@ -98,7 +98,7 @@ public class AdmittedImageTests
 	[Test]
 	public async Task PodEditedMeanwhileIsNotMarked()
 	{
-		var (client, server) = NewServerWithWebhook();
+		var (client, server) = NewChromaWithWebhook();
 		V1Pod? created = null;
 		client.CreateAsync(Arg.Any<V1Pod>(), Arg.Any<CancellationToken>()).Returns(call => created = Rewrite(call.Arg<V1Pod>()));
 		var updates = 0;
@@ -113,7 +113,7 @@ public class AdmittedImageTests
 			return edited;
 		});
 		using (client)
-			await new ChromaServerController(client, Defaults, NullLogger<ChromaServerController>.Instance).ReconcileAsync(server, CancellationToken.None);
+			await new ChromaController(client, Defaults, NullLogger<ChromaController>.Instance).ReconcileAsync(server, CancellationToken.None);
 		Assert.That(updates, Is.EqualTo(1));
 	}
 
@@ -122,7 +122,7 @@ public class AdmittedImageTests
 	public void DigestAddedToTheTagKeepsTheVersion()
 	{
 		const string pinned = "docker.io/chromadb/chroma:1.5.9@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-		var server = Server(Image159, dataVersion: "1.5.9", runningImage: pinned);
+		var server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: pinned);
 		var pod = RunningPod(server, Image159);
 		pod.Spec.Containers[0].Image = pinned;
 		pod.Metadata.Annotations[Labels.AdmittedImage] = pinned;
@@ -137,24 +137,24 @@ public class AdmittedImageTests
 	public void DigestWithoutTheTagMakesTheVersionUnknown()
 	{
 		const string pinned = "docker.io/chromadb/chroma@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-		var server = Server(Image159, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159);
 		var pod = RunningPod(server, Image159);
 		pod.Spec.Containers[0].Image = pinned;
 		pod.Metadata.Annotations[Labels.AdmittedImage] = pinned;
 		Assert.That(Reconciliation.Decide(server, pod, null, Now, Defaults).Status.DataVersionUnknown, Is.True);
 	}
 
-	private static (IKubernetesClient Client, V1Alpha1ChromaServer Server) NewServerWithWebhook()
+	private static (IKubernetesClient Client, V1Alpha1Chroma Server) NewChromaWithWebhook()
 	{
-		var server = Server();
+		var server = NewChroma();
 		server.ApiVersion = "chroma.chromadotnet.org/v1alpha1";
-		server.Kind = "ChromaServer";
+		server.Kind = "Chroma";
 		var client = Substitute.For<IKubernetesClient>();
 		client.CreateAsync(Arg.Any<V1ConfigMap>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1ConfigMap>());
 		client.CreateAsync(Arg.Any<V1Service>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Service>());
 		client.CreateAsync(Arg.Any<V1PersistentVolumeClaim>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1PersistentVolumeClaim>());
 		client.UpdateAsync(Arg.Any<V1PersistentVolumeClaim>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1PersistentVolumeClaim>());
-		client.UpdateStatusAsync(Arg.Any<V1Alpha1ChromaServer>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1ChromaServer>());
+		client.UpdateStatusAsync(Arg.Any<V1Alpha1Chroma>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1Chroma>());
 		return (client, server);
 	}
 
@@ -177,17 +177,17 @@ public class AdmittedImageTests
 	[Test]
 	public async Task CreatedPodAsAskedIsNotUpdated()
 	{
-		var server = Server();
+		var server = NewChroma();
 		server.ApiVersion = "chroma.chromadotnet.org/v1alpha1";
-		server.Kind = "ChromaServer";
+		server.Kind = "Chroma";
 		using var client = Substitute.For<IKubernetesClient>();
 		client.CreateAsync(Arg.Any<V1ConfigMap>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1ConfigMap>());
 		client.CreateAsync(Arg.Any<V1Service>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Service>());
 		client.CreateAsync(Arg.Any<V1PersistentVolumeClaim>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1PersistentVolumeClaim>());
 		client.UpdateAsync(Arg.Any<V1PersistentVolumeClaim>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1PersistentVolumeClaim>());
-		client.UpdateStatusAsync(Arg.Any<V1Alpha1ChromaServer>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1ChromaServer>());
+		client.UpdateStatusAsync(Arg.Any<V1Alpha1Chroma>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1Chroma>());
 		client.CreateAsync(Arg.Any<V1Pod>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Pod>());
-		await new ChromaServerController(client, Defaults, NullLogger<ChromaServerController>.Instance).ReconcileAsync(server, CancellationToken.None);
+		await new ChromaController(client, Defaults, NullLogger<ChromaController>.Instance).ReconcileAsync(server, CancellationToken.None);
 		await client.DidNotReceive().UpdateAsync(Arg.Any<V1Pod>(), Arg.Any<CancellationToken>());
 	}
 }

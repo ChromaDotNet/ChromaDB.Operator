@@ -19,28 +19,28 @@ namespace ChromaDotNet.Operator.Tests;
 public class ErrorTests
 {
 	private IKubernetesClient _client = null!;
-	private V1Alpha1ChromaServer _server = null!;
-	private V1Alpha1ChromaServer.ServerStatus? _written;
+	private V1Alpha1Chroma _server = null!;
+	private V1Alpha1Chroma.ChromaStatus? _written;
 	// Each status written, as it was at the call: the controller can change the same object after.
-	private readonly List<V1Alpha1ChromaServer.ServerStatus> _writes = [];
+	private readonly List<V1Alpha1Chroma.ChromaStatus> _writes = [];
 
 	[SetUp]
 	public void SetUp()
 	{
-		_server = Server(Image159, dataVersion: "1.5.9", runningImage: Image159);
+		_server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159);
 		_server.ApiVersion = "chroma.chromadotnet.org/v1alpha1";
-		_server.Kind = "ChromaServer";
+		_server.Kind = "Chroma";
 		_server.Metadata.Uid = "uid-" + Guid.NewGuid().ToString("N");
 		_client = Substitute.For<IKubernetesClient>();
 		_client.GetAsync<V1ConfigMap>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Resources.ConfigMap(_server));
 		_client.GetAsync<V1Service>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Resources.Service(_server));
 		_client.GetAsync<V1PersistentVolumeClaim>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Resources.Pvc(_server));
 		_writes.Clear();
-		_client.UpdateStatusAsync(Arg.Any<V1Alpha1ChromaServer>(), Arg.Any<CancellationToken>()).Returns(call =>
+		_client.UpdateStatusAsync(Arg.Any<V1Alpha1Chroma>(), Arg.Any<CancellationToken>()).Returns(call =>
 		{
-			_written = call.Arg<V1Alpha1ChromaServer>().Status;
-			_writes.Add(k8s.KubernetesJson.Deserialize<V1Alpha1ChromaServer.ServerStatus>(k8s.KubernetesJson.Serialize(_written)));
-			return call.Arg<V1Alpha1ChromaServer>();
+			_written = call.Arg<V1Alpha1Chroma>().Status;
+			_writes.Add(k8s.KubernetesJson.Deserialize<V1Alpha1Chroma.ChromaStatus>(k8s.KubernetesJson.Serialize(_written)));
+			return call.Arg<V1Alpha1Chroma>();
 		});
 	}
 
@@ -115,12 +115,12 @@ public class ErrorTests
 	[Test]
 	public async Task FailureIsWrittenOnTheServerAsItIsNow()
 	{
-		var current = k8s.KubernetesJson.Deserialize<V1Alpha1ChromaServer>(k8s.KubernetesJson.Serialize(_server));
+		var current = k8s.KubernetesJson.Deserialize<V1Alpha1Chroma>(k8s.KubernetesJson.Serialize(_server));
 		current.Metadata.ResourceVersion = "99";
-		_client.GetAsync<V1Alpha1ChromaServer>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(current);
+		_client.GetAsync<V1Alpha1Chroma>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(current);
 		_client.GetAsync<V1Pod>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException("connection refused"));
 		await Controller().ReconcileAsync(_server, CancellationToken.None);
-		await _client.Received().UpdateStatusAsync(Arg.Is<V1Alpha1ChromaServer>(s => s.Metadata.ResourceVersion == "99"
+		await _client.Received().UpdateStatusAsync(Arg.Is<V1Alpha1Chroma>(s => s.Metadata.ResourceVersion == "99"
 			&& s.Status.Conditions.Any(c => c.Type == "Reconciled" && c.Status == "False")), Arg.Any<CancellationToken>());
 	}
 
@@ -150,5 +150,5 @@ public class ErrorTests
 		Assert.That((await Controller().ReconcileAsync(_server, CancellationToken.None)).RequeueAfter, Is.EqualTo(TimeSpan.FromSeconds(10)));
 	}
 
-	private ChromaServerController Controller() => new(_client, Defaults, NullLogger<ChromaServerController>.Instance);
+	private ChromaController Controller() => new(_client, Defaults, NullLogger<ChromaController>.Instance);
 }

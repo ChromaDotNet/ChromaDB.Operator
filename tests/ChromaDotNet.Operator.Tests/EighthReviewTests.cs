@@ -11,9 +11,9 @@ public class EighthReviewTests
 	[Test]
 	public void RecoveryImageSurvivesAPodEditedToAnOlderImage()
 	{
-		var server = Server(Image153, dataVersion: "1.5.9", runningImage: Image153);
+		var server = NewChroma(Image153, dataVersion: "1.5.9", runningImage: Image153);
 		server.Status!.RecoveryImage = Image159;
-		var pod = RunningPod(Server(Image153), Image153);
+		var pod = RunningPod(NewChroma(Image153), Image153);
 		var first = Reconciliation.Decide(server, pod, null, Now, Defaults);
 		Assert.That(first.Status.RecoveryImage, Is.EqualTo(Image159));
 
@@ -28,8 +28,8 @@ public class EighthReviewTests
 	[Test]
 	public void ReportedImageBecomesTheRecoveryImage()
 	{
-		var server = Server(Image153, dataVersion: "1.5.3", runningImage: Image153);
-		var pod = RunningPod(Server(Image153), Image153);
+		var server = NewChroma(Image153, dataVersion: "1.5.3", runningImage: Image153);
+		var pod = RunningPod(NewChroma(Image153), Image153);
 		pod.Status.ContainerStatuses[0].Image = Image159;
 		var first = Reconciliation.Decide(server, pod, null, Now, Defaults);
 		Assert.That(first.Status.DataVersion, Is.EqualTo("1.5.9"));

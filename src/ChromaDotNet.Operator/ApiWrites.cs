@@ -24,7 +24,7 @@ internal static class ApiWrites
 	/// again, a few times; a claim that keeps changing, or an update the API refuses, is returned with the reason.
 	/// </summary>
 	public static async Task<(V1PersistentVolumeClaim Claim, string? Conflict, string Reason)> UpdateClaimAsync(IKubernetesClient client,
-		V1Alpha1ChromaServer server, V1PersistentVolumeClaim claim, Func<V1PersistentVolumeClaim, bool> change, CancellationToken cancellationToken)
+		V1Alpha1Chroma server, V1PersistentVolumeClaim claim, Func<V1PersistentVolumeClaim, bool> change, CancellationToken cancellationToken)
 	{
 		for (var attempt = 1; attempt <= Attempts; attempt++)
 		{

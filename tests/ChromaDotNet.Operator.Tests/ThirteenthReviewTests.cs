@@ -11,7 +11,7 @@ public class ThirteenthReviewTests
 	[Test]
 	public void ClaimThatKeepsTheIncidentKeepsItsCode()
 	{
-		var server = Server(Image159, dataVersion: "1.5.3", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.5.3", runningImage: Image159);
 		server.Status!.DataVersionUnknown = true;
 		server.Status.DataVersionUnknownIncident = "a1b2c3d4";
 		server.Metadata.Annotations = new Dictionary<string, string> { [Labels.DeclaredDataVersion] = "1.5.9/a1b2c3d4" };
@@ -32,7 +32,7 @@ public class ThirteenthReviewTests
 	[Test]
 	public void IncidentOfTheClaimIsKept()
 	{
-		var outcome = Reconciliation.Decide(Server(Image159), null, "1.5.3", Now, Defaults, pvcDataVersionUnknownIncident: "c0ffee00");
+		var outcome = Reconciliation.Decide(NewChroma(Image159), null, "1.5.3", Now, Defaults, pvcDataVersionUnknownIncident: "c0ffee00");
 		Assert.That(outcome.Status.DataVersionUnknownIncident, Is.EqualTo("c0ffee00"));
 	}
 }

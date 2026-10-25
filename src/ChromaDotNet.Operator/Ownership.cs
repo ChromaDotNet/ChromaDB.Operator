@@ -4,50 +4,50 @@ using k8s.Models;
 namespace ChromaDotNet.Operator;
 
 /// <summary>
-/// Which existing objects the operator may use and change. Pod, ConfigMap and Service carry the ChromaServer as their controller:
+/// Which existing objects the operator may use and change. Pod, ConfigMap and Service carry the Chroma as their controller:
 /// one with the same name and another controller, or none, belongs to someone else and is never changed. The claim is different:
-/// with pvcDeletionPolicy Retain it has no owner, so that it survives the ChromaServer; it is used when it has the labels the
-/// operator gave it for a server of this name, or the ChromaServer as controller.
+/// with pvcDeletionPolicy Retain it has no owner, so that it survives the Chroma; it is used when it has the labels the
+/// operator gave it for a server of this name, or the Chroma as controller.
 /// </summary>
 internal static class Ownership
 {
-	public static bool IsControlledBy(V1ObjectMeta metadata, V1Alpha1ChromaServer server) =>
+	public static bool IsControlledBy(V1ObjectMeta metadata, V1Alpha1Chroma server) =>
 		metadata.OwnerReferences?.Any(o => o.Controller == true && o.Uid == server.Uid()) == true;
 
 	/// <summary>Null when the object belongs to the server; otherwise why it cannot be used.</summary>
-	public static string? Conflict(string kind, V1ObjectMeta metadata, V1Alpha1ChromaServer server)
+	public static string? Conflict(string kind, V1ObjectMeta metadata, V1Alpha1Chroma server)
 	{
 		if (IsControlledBy(metadata, server))
 			return null;
 		var controller = metadata.OwnerReferences?.FirstOrDefault(o => o.Controller == true);
 		return controller is null
-			? $"{kind} {metadata.Name} exists and was not created by this ChromaServer: delete or rename it."
+			? $"{kind} {metadata.Name} exists and was not created by this Chroma: delete or rename it."
 			: $"{kind} {metadata.Name} exists and belongs to {controller.Kind} {controller.Name}: delete or rename it.";
 	}
 
 	/// <summary>Null when the claim can hold the data of the server; otherwise why it cannot.</summary>
-	public static string? ClaimConflict(V1PersistentVolumeClaim pvc, V1Alpha1ChromaServer server)
+	public static string? ClaimConflict(V1PersistentVolumeClaim pvc, V1Alpha1Chroma server)
 	{
 		var controller = pvc.Metadata.OwnerReferences?.FirstOrDefault(o => o.Controller == true);
 		if (controller is not null)
 			return controller.Uid == server.Uid() ? null : $"PersistentVolumeClaim {pvc.Name()} belongs to {controller.Kind} {controller.Name}: delete or rename it.";
 		var labels = pvc.Metadata.Labels;
-		if (labels?.TryGetValue(Labels.Server, out var name) == true && name == server.Name()
+		if (labels?.TryGetValue(Labels.Chroma, out var name) == true && name == server.Name()
 			&& labels.TryGetValue("app.kubernetes.io/managed-by", out var managedBy) && managedBy == Labels.ManagedBy)
 			return null;
-		return $"PersistentVolumeClaim {pvc.Name()} exists and was not created by the operator for a ChromaServer {server.Name()}. To use its data, " +
-			$"label it with {Labels.Server}={server.Name()} and app.kubernetes.io/managed-by={Labels.ManagedBy}; otherwise delete or rename it.";
+		return $"PersistentVolumeClaim {pvc.Name()} exists and was not created by the operator for a Chroma {server.Name()}. To use its data, " +
+			$"label it with {Labels.Chroma}={server.Name()} and app.kubernetes.io/managed-by={Labels.ManagedBy}; otherwise delete or rename it.";
 	}
 
 	/// <summary>Whether the server is among the owners of the claim, so that the garbage collector deletes the claim with it.</summary>
-	public static bool OwnsClaim(V1PersistentVolumeClaim? pvc, V1Alpha1ChromaServer server) =>
+	public static bool OwnsClaim(V1PersistentVolumeClaim? pvc, V1Alpha1Chroma server) =>
 		pvc?.Metadata.OwnerReferences?.Any(o => o.Uid == server.Uid()) == true;
 
 	/// <summary>
-	/// Makes the owner of the claim follow pvcDeletionPolicy: the ChromaServer as controller with Delete, so that the garbage collector
+	/// Makes the owner of the claim follow pvcDeletionPolicy: the Chroma as controller with Delete, so that the garbage collector
 	/// deletes the claim with it; no reference to it with Retain. Other references stay. True when the claim changed.
 	/// </summary>
-	public static bool ReconcileClaimOwner(V1PersistentVolumeClaim pvc, V1Alpha1ChromaServer server)
+	public static bool ReconcileClaimOwner(V1PersistentVolumeClaim pvc, V1Alpha1Chroma server)
 	{
 		var references = pvc.Metadata.OwnerReferences ?? [];
 		var ours = OwnsClaim(pvc, server);

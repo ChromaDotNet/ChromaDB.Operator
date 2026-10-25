@@ -11,8 +11,8 @@ public class SixthReviewTests
 	[Test]
 	public void DataVersionCountsThePodImageBeforeItStarts()
 	{
-		var server = Server(Image153, dataVersion: "1.5.3", runningImage: Image153);
-		var pod = RunningPod(Server(Image153), Image153, ready: false);
+		var server = NewChroma(Image153, dataVersion: "1.5.3", runningImage: Image153);
+		var pod = RunningPod(NewChroma(Image153), Image153, ready: false);
 		pod.Spec.Containers[0].Image = Image159;
 		pod.Status.ContainerStatuses[0] = new V1ContainerStatus
 		{
@@ -30,7 +30,7 @@ public class SixthReviewTests
 	[Test]
 	public void ConflictKeepsItsReason()
 	{
-		var outcome = Reconciliation.Conflict(Server(), "Service demo-rw refused", Now, "ServiceRefused", null, null, Defaults);
+		var outcome = Reconciliation.Conflict(NewChroma(), "Service demo-rw refused", Now, "ServiceRefused", null, null, Defaults);
 		Assert.That(Condition(outcome, "Ready").Reason, Is.EqualTo("ServiceRefused"));
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Failed"));
 	}

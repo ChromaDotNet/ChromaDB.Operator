@@ -8,7 +8,7 @@ using k8s.Models;
 namespace ChromaDotNet.Operator;
 
 /// <summary>
-/// The objects of a ChromaServer, as the operator wants them. Names follow CloudNativePG: the Pod and its PersistentVolumeClaim are
+/// The objects of a Chroma, as the operator wants them. Names follow CloudNativePG: the Pod and its PersistentVolumeClaim are
 /// named after the instance, <c>&lt;name&gt;-1</c>; there is no StatefulSet. The Pod is what the measures of the design showed to
 /// work with chromadb/chroma 1.x: a non-root user, a read-only root filesystem with /tmp as an emptyDir (without a writable /tmp
 /// SQLite fails at the start with a disk I/O error), and HTTP probes, since the image has no curl.
@@ -22,14 +22,14 @@ internal static partial class Resources
 	public const string ContainerName = "chroma";
 
 	/// <summary>
-	/// Null when the name of a ChromaServer gives valid names to its objects; otherwise why it does not. The Service &lt;name&gt;-rw must be a
+	/// Null when the name of a Chroma gives valid names to its objects; otherwise why it does not. The Service &lt;name&gt;-rw must be a
 	/// DNS label of at most 63 characters, so the name is a label of at most 60: lowercase letters, digits and '-', starting with a
 	/// letter and ending with a letter or a digit.
 	/// </summary>
 	public static string? NameError(string name)
 	{
 		if (name.Length > MaxNameLength)
-			return $"The name {name} has {name.Length} characters, and a ChromaServer has at most {MaxNameLength}: its Service is {ServiceName(name)}, a DNS label of at most 63.";
+			return $"The name {name} has {name.Length} characters, and a Chroma has at most {MaxNameLength}: its Service is {ServiceName(name)}, a DNS label of at most 63.";
 		return NameRegex().IsMatch(name)
 			? null
 			: $"The name {name} is not a DNS label: lowercase letters, digits and '-', starting with a letter and ending with a letter or a digit.";
@@ -47,14 +47,14 @@ internal static partial class Resources
 
 	public static string ServiceName(string server) => server + "-rw";
 
-	public static string Endpoint(V1Alpha1ChromaServer server) =>
+	public static string Endpoint(V1Alpha1Chroma server) =>
 		$"http://{ServiceName(server.Name())}.{server.Namespace()}.svc:{Port.ToString(CultureInfo.InvariantCulture)}";
 
 	/// <summary>
 	/// The configuration file of Chroma. Only the file: Chroma lets CHROMA_* environment variables override it, and the operator sets
 	/// none, so that the file is the whole configuration.
 	/// </summary>
-	public static string ConfigYaml(V1Alpha1ChromaServer.ConfigSpec? config)
+	public static string ConfigYaml(V1Alpha1Chroma.ConfigSpec? config)
 	{
 		var yaml = new StringBuilder();
 		yaml.Append(CultureInfo.InvariantCulture, $"persist_path: \"{DataPath}\"\n");
@@ -71,24 +71,24 @@ internal static partial class Resources
 		return yaml.ToString();
 	}
 
-	public static V1ConfigMap ConfigMap(V1Alpha1ChromaServer server) => new V1ConfigMap
+	public static V1ConfigMap ConfigMap(V1Alpha1Chroma server) => new V1ConfigMap
 	{
 		Metadata = Metadata(server, ConfigMapName(server.Name())),
 		Data = new Dictionary<string, string> { [ConfigFile] = ConfigYaml(server.Spec.Config) },
 	}.Initialize();
 
-	public static V1Service Service(V1Alpha1ChromaServer server) => new V1Service
+	public static V1Service Service(V1Alpha1Chroma server) => new V1Service
 	{
 		Metadata = Metadata(server, ServiceName(server.Name())),
 		Spec = new V1ServiceSpec
 		{
 			Type = server.Spec.Service?.Type ?? "ClusterIP",
-			Selector = new Dictionary<string, string> { [Labels.Server] = server.Name() },
+			Selector = new Dictionary<string, string> { [Labels.Chroma] = server.Name() },
 			Ports = [new V1ServicePort { Name = "http", Port = Port, TargetPort = "http", Protocol = "TCP" }],
 		},
 	}.Initialize();
 
-	public static V1PersistentVolumeClaim Pvc(V1Alpha1ChromaServer server)
+	public static V1PersistentVolumeClaim Pvc(V1Alpha1Chroma server)
 	{
 		var pvc = new V1PersistentVolumeClaim
 		{
@@ -104,7 +104,7 @@ internal static partial class Resources
 	}
 
 	/// <summary>The Pod, with the hash of the configuration and the hash of itself in its annotations.</summary>
-	public static V1Pod Pod(V1Alpha1ChromaServer server, string image)
+	public static V1Pod Pod(V1Alpha1Chroma server, string image)
 	{
 		var name = InstanceName(server.Name());
 		var configHash = Hash(ConfigYaml(server.Spec.Config));
@@ -177,7 +177,7 @@ internal static partial class Resources
 
 	public static string Hash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
 
-	private static V1ObjectMeta Metadata(V1Alpha1ChromaServer server, string name, IDictionary<string, string>? annotations = null, bool owned = true)
+	private static V1ObjectMeta Metadata(V1Alpha1Chroma server, string name, IDictionary<string, string>? annotations = null, bool owned = true)
 	{
 		var metadata = new V1ObjectMeta
 		{
@@ -191,7 +191,7 @@ internal static partial class Resources
 		return metadata;
 	}
 
-	public static V1OwnerReference OwnerReference(V1Alpha1ChromaServer server) => new()
+	public static V1OwnerReference OwnerReference(V1Alpha1Chroma server) => new()
 	{
 		ApiVersion = server.ApiVersion,
 		Kind = server.Kind,

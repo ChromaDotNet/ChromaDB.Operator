@@ -1,5 +1,5 @@
 apiVersion: chroma.chromadotnet.org/v1alpha1
-kind: ChromaServer
+kind: Chroma
 metadata:
   name: demo
 spec:

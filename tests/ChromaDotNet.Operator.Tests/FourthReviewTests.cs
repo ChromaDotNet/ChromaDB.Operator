@@ -11,15 +11,15 @@ public class FourthReviewTests
 	[TestCase("other")]
 	public void LabelsOfThePodAreRestored(string? value)
 	{
-		var server = Server();
+		var server = NewChroma();
 		var pod = RunningPod(server, Image159);
 		if (value is null)
-			pod.Metadata.Labels.Remove(Labels.Server);
+			pod.Metadata.Labels.Remove(Labels.Chroma);
 		else
-			pod.Metadata.Labels[Labels.Server] = value;
+			pod.Metadata.Labels[Labels.Chroma] = value;
 		pod.Metadata.Labels["team"] = "kept";
 		Assert.That(Ownership.ApplyLabels(pod.Metadata, Labels.For("demo")), Is.True);
-		Assert.That(pod.Metadata.Labels[Labels.Server], Is.EqualTo("demo"));
+		Assert.That(pod.Metadata.Labels[Labels.Chroma], Is.EqualTo("demo"));
 		Assert.That(pod.Metadata.Labels["team"], Is.EqualTo("kept"));
 		Assert.That(Ownership.ApplyLabels(pod.Metadata, Labels.For("demo")), Is.False, "nothing more to change");
 	}
@@ -28,7 +28,7 @@ public class FourthReviewTests
 	[Test]
 	public void NodePortOfTheSolePortStays()
 	{
-		var server = Server();
+		var server = NewChroma();
 		var current = Resources.Service(server);
 		current.Spec.Type = "NodePort";
 		current.Spec.Ports[0] = new V1ServicePort { Name = "debug", Port = 9000, TargetPort = 9000, Protocol = "TCP", NodePort = 31000 };

@@ -13,22 +13,22 @@ using static ChromaDotNet.Operator.Tests.Fixtures;
 namespace ChromaDotNet.Operator.Tests;
 
 /// <summary>
-/// The finalizer of a ChromaServer being deleted: with Retain the claim loses the server as owner before the server goes, also when
+/// The finalizer of a Chroma being deleted: with Retain the claim loses the server as owner before the server goes, also when
 /// the policy changed after the last pass; with Delete the claim is left to the garbage collector.
 /// </summary>
 public class ClaimFinalizerTests
 {
 	private IKubernetesClient _client = null!;
-	private V1Alpha1ChromaServer _server = null!;
+	private V1Alpha1Chroma _server = null!;
 	private V1PersistentVolumeClaim _claim = null!;
 	private V1OwnerReference _other = null!;
 
 	[SetUp]
 	public void SetUp()
 	{
-		_server = Server();
+		_server = NewChroma();
 		_server.ApiVersion = "chroma.chromadotnet.org/v1alpha1";
-		_server.Kind = "ChromaServer";
+		_server.Kind = "Chroma";
 		_server.Metadata.DeletionTimestamp = Now;
 		// The claim of a server created with Delete, changed to Retain just before its deletion: the pass that removes the owner has not run.
 		_server.Spec.PvcDeletionPolicy = "Retain";

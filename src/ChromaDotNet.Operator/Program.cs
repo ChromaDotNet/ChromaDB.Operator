@@ -13,11 +13,11 @@ builder.Services
 		// update, or with a Pod left on a node that was lost, another one waits.
 		settings.Name = "chroma-operator";
 		settings.WithLeaderElection(LeaderElectionType.Single);
-		// The controller puts the finalizer of the claim on a ChromaServer only while the server owns its claim (ClaimFinalizer).
+		// The controller puts the finalizer of the claim on a Chroma only while the server owns its claim (ClaimFinalizer).
 		settings.WithAutoAttachFinalizers(false);
 	})
 	.RegisterComponents();
-// The Pods change outside the watch of KubeOps, which follows the ChromaServers: their changes put the server in the queue at once.
+// The Pods change outside the watch of KubeOps, which follows the Chroma resources: their changes put the server in the queue at once.
 builder.Services.AddHostedService<PodWatcher>();
 // The probes of the Deployment: the process answers on ASPNETCORE_HTTP_PORTS.
 builder.Services.AddHealthChecks();

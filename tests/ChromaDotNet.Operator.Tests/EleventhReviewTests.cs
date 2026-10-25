@@ -11,7 +11,7 @@ public class EleventhReviewTests
 	[Test]
 	public void OldDeclarationDoesNotResolveANewIncident()
 	{
-		var server = Server(Image159, dataVersion: "1.5.9", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159);
 		var pod = RunningPod(server, Image159);
 		pod.Spec.Containers[0].Image = "docker.io/chromadb/chroma:latest";
 		var first = Reconciliation.Decide(server, pod, null, Now, Defaults);
@@ -32,7 +32,7 @@ public class EleventhReviewTests
 	[Test]
 	public void DeclarationWithoutTheIncidentResolvesNothing()
 	{
-		var server = Server(Image159, dataVersion: "1.0.0", runningImage: Image159);
+		var server = NewChroma(Image159, dataVersion: "1.0.0", runningImage: Image159);
 		server.Status!.DataVersionUnknown = true;
 		server.Status.DataVersionUnknownIncident = "a1b2c3d4";
 		server.Metadata.Annotations = new Dictionary<string, string> { [Labels.DeclaredDataVersion] = "1.5.9" };

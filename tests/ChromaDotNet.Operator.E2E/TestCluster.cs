@@ -98,13 +98,13 @@ internal sealed class TestCluster : IDisposable
 		Client.Dispose();
 	}
 
-	public static V1Alpha1ChromaServer NewServer(string name, string image) => new()
+	public static V1Alpha1Chroma NewChroma(string name, string image) => new()
 	{
 		Metadata = new V1ObjectMeta { Name = name },
-		Spec = new V1Alpha1ChromaServer.ServerSpec
+		Spec = new V1Alpha1Chroma.ChromaSpec
 		{
 			Image = image,
-			Storage = new V1Alpha1ChromaServer.StorageSpec { Size = "1Gi" },
+			Storage = new V1Alpha1Chroma.StorageSpec { Size = "1Gi" },
 			Resources = new V1ResourceRequirements
 			{
 				Requests = new Dictionary<string, ResourceQuantity> { ["cpu"] = new("100m"), ["memory"] = new("256Mi") },
@@ -113,18 +113,18 @@ internal sealed class TestCluster : IDisposable
 		},
 	};
 
-	public async Task<V1Alpha1ChromaServer> CreateAsync(V1Alpha1ChromaServer server)
+	public async Task<V1Alpha1Chroma> CreateAsync(V1Alpha1Chroma server)
 	{
 		server.Metadata.NamespaceProperty = Namespace;
 		return await Client.CreateAsync(server);
 	}
 
-	public Task<V1Alpha1ChromaServer?> GetAsync(string name) => Client.GetAsync<V1Alpha1ChromaServer>(name, Namespace);
+	public Task<V1Alpha1Chroma?> GetAsync(string name) => Client.GetAsync<V1Alpha1Chroma>(name, Namespace);
 
 	public Task<V1Pod?> PodAsync(string name) => Client.GetAsync<V1Pod>(name, Namespace);
 
-	/// <summary>Changes the ChromaServer, read again at each attempt, until the API accepts the update.</summary>
-	public async Task<V1Alpha1ChromaServer> UpdateAsync(string name, Action<V1Alpha1ChromaServer> change)
+	/// <summary>Changes the Chroma, read again at each attempt, until the API accepts the update.</summary>
+	public async Task<V1Alpha1Chroma> UpdateAsync(string name, Action<V1Alpha1Chroma> change)
 	{
 		for (var attempt = 1; ; attempt++)
 		{
@@ -141,13 +141,13 @@ internal sealed class TestCluster : IDisposable
 	}
 
 	/// <summary>
-	/// Waits until the ChromaServer satisfies the condition, and returns it; fails after the timeout with its status, the status of its
+	/// Waits until the Chroma satisfies the condition, and returns it; fails after the timeout with its status, the status of its
 	/// Pod, and the events of the namespace, so that a Pod that does not start can be told from an operator that does not act.
 	/// </summary>
-	public async Task<V1Alpha1ChromaServer> WaitAsync(string name, Func<V1Alpha1ChromaServer, bool> condition, TimeSpan? timeout = null, string? what = null)
+	public async Task<V1Alpha1Chroma> WaitAsync(string name, Func<V1Alpha1Chroma, bool> condition, TimeSpan? timeout = null, string? what = null)
 	{
 		var watch = Stopwatch.StartNew();
-		V1Alpha1ChromaServer? server = null;
+		V1Alpha1Chroma? server = null;
 		while (watch.Elapsed < (timeout ?? ReadyTimeout))
 		{
 			server = await GetAsync(name);
@@ -181,7 +181,7 @@ internal sealed class TestCluster : IDisposable
 	}
 
 	/// <summary>
-	/// After the deletion of a ChromaServer: once the garbage collector has deleted the objects it owned, the claim is still there, not
+	/// After the deletion of a Chroma: once the garbage collector has deleted the objects it owned, the claim is still there, not
 	/// being deleted, and without owners. A claim the garbage collector deletes is marked for deletion before the Pod that uses it is gone.
 	/// </summary>
 	public async Task AssertClaimKeptAsync(string server)
@@ -253,12 +253,12 @@ internal sealed class TestCluster : IDisposable
 		Assert.Fail($"the operator did not reach {replicas} Pods");
 	}
 
-	public Task<V1Alpha1ChromaServer> WaitReadyAsync(string name, string image) =>
+	public Task<V1Alpha1Chroma> WaitReadyAsync(string name, string image) =>
 		WaitAsync(name, s => s.Status?.Phase == "Ready" && s.Status.Image == image && s.Status.ObservedGeneration == s.Metadata.Generation,
 			what: $"Ready on {image}");
 
 	/// <summary>
-	/// A port-forward of kubectl to the Service of the ChromaServer, with the kubeconfig and the context of the test cluster. A
+	/// A port-forward of kubectl to the Service of the Chroma, with the kubeconfig and the context of the test cluster. A
 	/// port-forward follows one Pod: open a new one after the Pod changes.
 	/// </summary>
 	public async Task<PortForward> ForwardAsync(string server)

@@ -8,11 +8,11 @@ using NUnit.Framework;
 namespace ChromaDotNet.Operator.E2E;
 
 /// <summary>
-/// The v0.1 of the operator on a real cluster: a ChromaServer that answers, a new configuration, an upgrade and a refused downgrade,
+/// The v0.1 of the operator on a real cluster: a Chroma that answers, a new configuration, an upgrade and a refused downgrade,
 /// the rollback of an upgrade that failed, a Pod deleted by hand, an image that cannot be pulled, a container that keeps crashing, and
 /// the deletion with both claim policies. The images docker.io/chromadb/chroma:1.5.3 and :1.5.9 must be on the cluster or pullable.
 /// </summary>
-public class ChromaServerTests
+public class ChromaTests
 {
 	private const string Image153 = "docker.io/chromadb/chroma:1.5.3";
 	private const string Image159 = "docker.io/chromadb/chroma:1.5.9";
@@ -28,7 +28,7 @@ public class ChromaServerTests
 	[Test]
 	public async Task ServerAnswersOnItsService()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("answers", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("answers", Image159));
 		var server = await _cluster.WaitReadyAsync("answers", Image159);
 
 		Assert.That(server.Status!.DataVersion, Is.EqualTo("1.5.9"));
@@ -37,7 +37,7 @@ public class ChromaServerTests
 		var pod = (await _cluster.PodAsync("answers-1"))!;
 		Assert.That(pod.Spec.SecurityContext.RunAsNonRoot, Is.True);
 		Assert.That(pod.Spec.Containers[0].SecurityContext.ReadOnlyRootFilesystem, Is.True);
-		Assert.That(pod.Metadata.OwnerReferences.Single().Kind, Is.EqualTo("ChromaServer"));
+		Assert.That(pod.Metadata.OwnerReferences.Single().Kind, Is.EqualTo("Chroma"));
 		var pvc = (await _cluster.Client.GetAsync<V1PersistentVolumeClaim>("answers-1", _cluster.Namespace))!;
 		Assert.That(pvc.Metadata.Annotations[Labels.Group + "/data-version"], Is.EqualTo("1.5.9"));
 
@@ -52,7 +52,7 @@ public class ChromaServerTests
 	[Test]
 	public async Task NewConfigurationRestartsThePodAndKeepsTheData()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("config", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("config", Image159));
 		await _cluster.WaitReadyAsync("config", Image159);
 		var before = (await _cluster.PodAsync("config-1"))!.Uid();
 		string[] found;
@@ -64,7 +64,7 @@ public class ChromaServerTests
 			found = await chroma.QueryAsync("kept", 5);
 		}
 
-		await _cluster.UpdateAsync("config", s => s.Spec.Config = new V1Alpha1ChromaServer.ConfigSpec { MaxPayloadSizeBytes = 1000 });
+		await _cluster.UpdateAsync("config", s => s.Spec.Config = new V1Alpha1Chroma.ConfigSpec { MaxPayloadSizeBytes = 1000 });
 		await _cluster.WaitAsync("config", s => s.Status?.Phase == "Ready" && s.Status.ObservedGeneration == s.Metadata.Generation, what: "Ready after the change");
 		var after = (await _cluster.PodAsync("config-1"))!;
 		Assert.That(after.Uid(), Is.Not.EqualTo(before), "a new Pod");
@@ -83,7 +83,7 @@ public class ChromaServerTests
 	[Test]
 	public async Task UpgradeAndRefusedDowngrade()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("versions", Image153));
+		await _cluster.CreateAsync(TestCluster.NewChroma("versions", Image153));
 		await _cluster.WaitReadyAsync("versions", Image153);
 		using (var forward = await _cluster.ForwardAsync("versions"))
 		using (var chroma = new ChromaHttp(forward.Uri))
@@ -115,7 +115,7 @@ public class ChromaServerTests
 	[Test]
 	public async Task DeletedPodComesBackWithTheData()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("again", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("again", Image159));
 		await _cluster.WaitReadyAsync("again", Image159);
 		using (var forward = await _cluster.ForwardAsync("again"))
 		using (var chroma = new ChromaHttp(forward.Uri))
@@ -149,7 +149,7 @@ public class ChromaServerTests
 	[Test]
 	public async Task DefaultImageIsWrittenIntoTheSpec()
 	{
-		var server = TestCluster.NewServer("default", Image159);
+		var server = TestCluster.NewChroma("default", Image159);
 		server.Spec.Image = null;
 		await _cluster.CreateAsync(server);
 		var ready = await _cluster.WaitReadyAsync("default", Image159);
@@ -161,11 +161,39 @@ public class ChromaServerTests
 	[Test]
 	public async Task ImageOutsideTheAllowedRepositoriesStartsNothing()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("other", "docker.io/library/busybox:1.36.1"));
+		await _cluster.CreateAsync(TestCluster.NewChroma("other", "docker.io/library/busybox:1.36.1"));
 		var refused = await _cluster.WaitAsync("other", s => s.Status?.Phase == "Failed", TimeSpan.FromSeconds(60), "Failed");
 		Assert.That(refused.Status!.Conditions.Single(c => c.Type == "UpgradeBlocked").Reason, Is.EqualTo("ImageNotAllowed"));
 		await Task.Delay(TimeSpan.FromSeconds(5));
 		Assert.That(await _cluster.PodAsync("other-1"), Is.Null);
+	}
+
+	// Without spec.mode the API writes single-node; the mode does not change after the creation.
+	[Test]
+	public async Task ModeIsSingleNodeAndCannotChange()
+	{
+		var created = await _cluster.CreateAsync(TestCluster.NewChroma("mode", Image159));
+		Assert.That(created.Spec.Mode, Is.EqualTo("single-node"));
+		await _cluster.WaitReadyAsync("mode", Image159);
+		var e = Assert.ThrowsAsync<HttpOperationException>(() => _cluster.UpdateAsync("mode", s => s.Spec.Mode = "distributed"));
+		Assert.That(e!.Response.StatusCode, Is.EqualTo(HttpStatusCode.UnprocessableEntity), e.Response.Content);
+		Assert.That(e.Response.Content, Does.Contain("spec.mode cannot change after creation"));
+	}
+
+	// A distributed Chroma: this version of the operator creates nothing, and says why.
+	[Test]
+	public async Task DistributedIsRefusedForNow()
+	{
+		var chroma = TestCluster.NewChroma("dist", Image159);
+		chroma.Spec.Mode = "distributed";
+		await _cluster.CreateAsync(chroma);
+		var failed = await _cluster.WaitAsync("dist", s => s.Status?.Phase == "Failed", TimeSpan.FromSeconds(60), "Failed");
+		Assert.That(failed.Status!.Conditions.Single(c => c.Type == "Ready").Reason, Is.EqualTo("DistributedNotImplemented"));
+		await Task.Delay(TimeSpan.FromSeconds(5));
+		Assert.That(await _cluster.PodAsync("dist-1"), Is.Null);
+		Assert.That(await _cluster.Client.GetAsync<V1PersistentVolumeClaim>("dist-1", _cluster.Namespace), Is.Null);
+		Assert.That(await _cluster.Client.GetAsync<V1ConfigMap>("dist-config", _cluster.Namespace), Is.Null);
+		Assert.That(await _cluster.Client.GetAsync<V1Service>("dist-rw", _cluster.Namespace), Is.Null);
 	}
 
 	[TestCase("docker.io/chromadb/chroma:latest")]
@@ -173,25 +201,25 @@ public class ChromaServerTests
 	[TestCase("docker.io/chromadb/chroma")]
 	public void ImageWithoutAnExactVersionIsRefusedByTheApi(string image)
 	{
-		var e = Assert.ThrowsAsync<HttpOperationException>(() => _cluster.CreateAsync(TestCluster.NewServer("refused", image)));
+		var e = Assert.ThrowsAsync<HttpOperationException>(() => _cluster.CreateAsync(TestCluster.NewChroma("refused", image)));
 		Assert.That(e!.Response.StatusCode, Is.EqualTo(HttpStatusCode.UnprocessableEntity), e.Response.Content);
 	}
 
-	// Retain, the default: the claim stays with the data, and a ChromaServer created again on it knows the data version. With the version
+	// Retain, the default: the claim stays with the data, and a Chroma created again on it knows the data version. With the version
 	// of the data it starts again, with all the records.
 	[Test]
 	public async Task DeletionWithRetainKeepsTheClaim()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("retain", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("retain", Image159));
 		await _cluster.WaitReadyAsync("retain", Image159);
 		using (var forward = await _cluster.ForwardAsync("retain"))
 		using (var chroma = new ChromaHttp(forward.Uri))
 			await chroma.AddAsync(await chroma.CollectionAsync("kept"), 0, 1200);
-		await _cluster.Client.DeleteAsync<V1Alpha1ChromaServer>("retain", _cluster.Namespace);
-		await _cluster.WaitGoneAsync<V1Alpha1ChromaServer>("retain");
+		await _cluster.Client.DeleteAsync<V1Alpha1Chroma>("retain", _cluster.Namespace);
+		await _cluster.WaitGoneAsync<V1Alpha1Chroma>("retain");
 		await _cluster.AssertClaimKeptAsync("retain");
 
-		await _cluster.CreateAsync(TestCluster.NewServer("retain", Image153));
+		await _cluster.CreateAsync(TestCluster.NewChroma("retain", Image153));
 		var refused = await _cluster.WaitAsync("retain", s => s.Status?.Phase == "Failed", TimeSpan.FromSeconds(60), "Failed on older data");
 		Assert.That(refused.Status!.DataVersion, Is.EqualTo("1.5.9"));
 		Assert.That(await _cluster.PodAsync("retain-1"), Is.Null, "no Pod of 1.5.3 on data of 1.5.9");
@@ -209,7 +237,7 @@ public class ChromaServerTests
 	[Test]
 	public async Task RollbackAfterAFailedUpgradeNeedsTheAnnotation()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("rollback", Image153));
+		await _cluster.CreateAsync(TestCluster.NewChroma("rollback", Image153));
 		await _cluster.WaitReadyAsync("rollback", Image153);
 		using (var forward = await _cluster.ForwardAsync("rollback"))
 		using (var chroma = new ChromaHttp(forward.Uri))
@@ -248,7 +276,7 @@ public class ChromaServerTests
 	[Test]
 	public async Task ImageThatCannotBePulledFailsTheServer()
 	{
-		await _cluster.CreateAsync(TestCluster.NewServer("pull", "docker.io/chromadb/chroma:9.9.9"));
+		await _cluster.CreateAsync(TestCluster.NewChroma("pull", "docker.io/chromadb/chroma:9.9.9"));
 		var failed = await _cluster.WaitAsync("pull", s => s.Status?.Phase == "Failed", TimeSpan.FromSeconds(120), "Failed");
 		Assert.That(failed.Status!.Conditions.Single(c => c.Type == "Ready").Reason, Is.AnyOf("ErrImagePull", "ImagePullBackOff"));
 		Assert.That(await _cluster.PodAsync("pull-1"), Is.Not.Null);
@@ -265,7 +293,7 @@ public class ChromaServerTests
 			{
 				Name = "broken-1",
 				NamespaceProperty = _cluster.Namespace,
-				Labels = new Dictionary<string, string> { [Labels.Server] = "broken", ["app.kubernetes.io/managed-by"] = Labels.ManagedBy },
+				Labels = new Dictionary<string, string> { [Labels.Chroma] = "broken", ["app.kubernetes.io/managed-by"] = Labels.ManagedBy },
 			},
 			Spec = new V1PersistentVolumeClaimSpec
 			{
@@ -302,7 +330,7 @@ public class ChromaServerTests
 		}
 		await _cluster.Client.DeleteAsync<V1Pod>("corrupt", _cluster.Namespace);
 
-		await _cluster.CreateAsync(TestCluster.NewServer("broken", Image159));
+		await _cluster.CreateAsync(TestCluster.NewChroma("broken", Image159));
 		var failed = await _cluster.WaitAsync("broken",
 			s => s.Status?.Conditions.Any(c => c.Type == "Ready" && c.Reason == "CrashLoopBackOff") == true, TimeSpan.FromSeconds(120), "CrashLoopBackOff");
 		Assert.That(failed.Status!.Phase, Is.EqualTo("Failed"));
@@ -316,11 +344,11 @@ public class ChromaServerTests
 	[Test]
 	public async Task DeletionWithDeleteDeletesTheClaim()
 	{
-		var server = TestCluster.NewServer("delete", Image159);
+		var server = TestCluster.NewChroma("delete", Image159);
 		server.Spec.PvcDeletionPolicy = "Delete";
 		await _cluster.CreateAsync(server);
 		await _cluster.WaitReadyAsync("delete", Image159);
-		await _cluster.Client.DeleteAsync<V1Alpha1ChromaServer>("delete", _cluster.Namespace);
+		await _cluster.Client.DeleteAsync<V1Alpha1Chroma>("delete", _cluster.Namespace);
 		await _cluster.WaitGoneAsync<V1Pod>("delete-1");
 		await _cluster.WaitGoneAsync<V1PersistentVolumeClaim>("delete-1");
 	}

@@ -32,7 +32,7 @@ public class ControllerPassTests
 		_client.CreateAsync(Arg.Any<V1PersistentVolumeClaim>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1PersistentVolumeClaim>());
 		_client.CreateAsync(Arg.Any<V1Pod>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Pod>());
 		_client.UpdateAsync(Arg.Any<V1PersistentVolumeClaim>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1PersistentVolumeClaim>());
-		_client.UpdateStatusAsync(Arg.Any<V1Alpha1ChromaServer>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1ChromaServer>());
+		_client.UpdateStatusAsync(Arg.Any<V1Alpha1Chroma>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1Chroma>());
 		_core.CreateNamespacedPodWithHttpMessagesAsync(Arg.Any<V1Pod>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
 				Arg.Any<bool?>(), Arg.Any<IReadOnlyDictionary<string, IReadOnlyList<string>>>(), Arg.Any<CancellationToken>())
 			.Returns(call => new HttpOperationResponse<V1Pod> { Body = call.Arg<V1Pod>() });
@@ -49,7 +49,7 @@ public class ControllerPassTests
 	[Test]
 	public async Task NewServerCreatesItsObjects()
 	{
-		var server = Named(Server());
+		var server = Named(NewChroma());
 		await Controller().ReconcileAsync(server, CancellationToken.None);
 		await _client.Received(1).CreateAsync(Arg.Is<V1ConfigMap>(c => c.Name() == "demo-config"), Arg.Any<CancellationToken>());
 		await _client.Received(1).CreateAsync(Arg.Is<V1Service>(s => s.Name() == "demo-rw"), Arg.Any<CancellationToken>());
@@ -57,7 +57,7 @@ public class ControllerPassTests
 		Received.InOrder(() =>
 		{
 			_client.UpdateAsync(Arg.Is<V1PersistentVolumeClaim>(c => c.Metadata.Annotations[Labels.ClaimDataVersion] == "1.5.9"), Arg.Any<CancellationToken>());
-			_client.UpdateStatusAsync(Arg.Is<V1Alpha1ChromaServer>(s => s.Status.DataVersion == "1.5.9" && s.Status.Phase == "Creating"), Arg.Any<CancellationToken>());
+			_client.UpdateStatusAsync(Arg.Is<V1Alpha1Chroma>(s => s.Status.DataVersion == "1.5.9" && s.Status.Phase == "Creating"), Arg.Any<CancellationToken>());
 			_client.CreateAsync(Arg.Is<V1Pod>(p => p.Name() == "demo-1" && p.Spec.Containers[0].Image == Image159), Arg.Any<CancellationToken>());
 		});
 	}
@@ -66,7 +66,7 @@ public class ControllerPassTests
 	[Test]
 	public async Task SteadyServerWritesNothing()
 	{
-		var server = Named(Server(Image159, dataVersion: "1.5.9", runningImage: Image159));
+		var server = Named(NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159));
 		var pod = Existing(server, Image159, "1.5.9");
 		server.Status = Reconciliation.Decide(server, pod, "1.5.9", Now, Defaults).Status;
 		var result = await Controller().ReconcileAsync(server, CancellationToken.None);
@@ -79,12 +79,12 @@ public class ControllerPassTests
 	[Test]
 	public async Task DifferentStatusIsWritten()
 	{
-		var server = Named(Server(Image159, dataVersion: "1.5.9", runningImage: Image159));
+		var server = Named(NewChroma(Image159, dataVersion: "1.5.9", runningImage: Image159));
 		var pod = Existing(server, Image159, "1.5.9");
 		server.Status = Reconciliation.Decide(server, pod, "1.5.9", Now, Defaults).Status;
 		server.Status.Phase = "Updating";
 		await Controller().ReconcileAsync(server, CancellationToken.None);
-		await _client.Received(1).UpdateStatusAsync(Arg.Is<V1Alpha1ChromaServer>(s => s.Status.Phase == "Ready"), Arg.Any<CancellationToken>());
+		await _client.Received(1).UpdateStatusAsync(Arg.Is<V1Alpha1Chroma>(s => s.Status.Phase == "Ready"), Arg.Any<CancellationToken>());
 		Assert.That(_client.ReceivedCalls().Select(c => c.GetMethodInfo().Name)
 			.Where(n => n is not (nameof(IKubernetesClient.GetAsync) or "get_ApiClient" or nameof(IKubernetesClient.UpdateStatusAsync))), Is.Empty);
 	}
@@ -94,7 +94,7 @@ public class ControllerPassTests
 	[Test]
 	public async Task NewImageDeletesThePodThatWasRead()
 	{
-		var server = Named(Server(Image159, dataVersion: "1.5.3", runningImage: Image153));
+		var server = Named(NewChroma(Image159, dataVersion: "1.5.3", runningImage: Image153));
 		Existing(server, Image153, "1.5.3");
 		await Controller().ReconcileAsync(server, CancellationToken.None);
 		await _core.Received(1).CreateNamespacedPodWithHttpMessagesAsync(Arg.Is<V1Pod>(p => p.Name() == "demo-1-check" && p.Spec.Containers[0].Image == Image159),
@@ -111,7 +111,7 @@ public class ControllerPassTests
 	[Test]
 	public async Task RefusedReplacementKeepsThePod()
 	{
-		var server = Named(Server(Image159, dataVersion: "1.5.3", runningImage: Image153));
+		var server = Named(NewChroma(Image159, dataVersion: "1.5.3", runningImage: Image153));
 		Existing(server, Image153, "1.5.3");
 		_core.CreateNamespacedPodWithHttpMessagesAsync(Arg.Any<V1Pod>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
 				Arg.Any<bool?>(), Arg.Any<IReadOnlyDictionary<string, IReadOnlyList<string>>>(), Arg.Any<CancellationToken>())
@@ -121,20 +121,20 @@ public class ControllerPassTests
 			});
 		await Controller().ReconcileAsync(server, CancellationToken.None);
 		Assert.That(PodDeletes(_client), Is.Zero);
-		await _client.Received().UpdateStatusAsync(Arg.Is<V1Alpha1ChromaServer>(s => s.Status.Conditions.Any(c => c.Type == "Ready" && c.Reason == "PodRefused")), Arg.Any<CancellationToken>());
+		await _client.Received().UpdateStatusAsync(Arg.Is<V1Alpha1Chroma>(s => s.Status.Conditions.Any(c => c.Type == "Ready" && c.Reason == "PodRefused")), Arg.Any<CancellationToken>());
 	}
 
-	private ChromaServerController Controller() => new(_client, Defaults, NullLogger<ChromaServerController>.Instance);
+	private ChromaController Controller() => new(_client, Defaults, NullLogger<ChromaController>.Instance);
 
-	private static V1Alpha1ChromaServer Named(V1Alpha1ChromaServer server)
+	private static V1Alpha1Chroma Named(V1Alpha1Chroma server)
 	{
 		server.ApiVersion = "chroma.chromadotnet.org/v1alpha1";
-		server.Kind = "ChromaServer";
+		server.Kind = "Chroma";
 		return server;
 	}
 
 	/// <summary>The objects of the server as the operator created them, with a ready Pod of the image and the data version on the claim.</summary>
-	private V1Pod Existing(V1Alpha1ChromaServer server, string image, string dataVersion)
+	private V1Pod Existing(V1Alpha1Chroma server, string image, string dataVersion)
 	{
 		var pod = RunningPod(server, image);
 		pod.Metadata.Uid = "pod-1";

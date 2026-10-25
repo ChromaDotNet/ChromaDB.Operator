@@ -19,16 +19,16 @@ namespace ChromaDotNet.Operator.Tests;
 public class ControllerTests
 {
 	private IKubernetesClient _client = null!;
-	private V1Alpha1ChromaServer _server = null!;
+	private V1Alpha1Chroma _server = null!;
 	private V1PersistentVolumeClaim _claim = null!;
-	private V1Alpha1ChromaServer.ServerStatus? _written;
+	private V1Alpha1Chroma.ChromaStatus? _written;
 
 	[SetUp]
 	public void SetUp()
 	{
-		_server = Server(Image153, dataVersion: "1.5.3", runningImage: Image153);
+		_server = NewChroma(Image153, dataVersion: "1.5.3", runningImage: Image153);
 		_server.ApiVersion = "chroma.chromadotnet.org/v1alpha1";
-		_server.Kind = "ChromaServer";
+		_server.Kind = "Chroma";
 		_claim = Resources.Pvc(_server);
 		_claim.Metadata.Annotations = new Dictionary<string, string> { [Labels.ClaimDataVersion] = "1.5.3" };
 		var pod = RunningPod(_server, Image153);
@@ -40,9 +40,9 @@ public class ControllerTests
 		_client.GetAsync<V1Service>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Resources.Service(_server));
 		_client.GetAsync<V1PersistentVolumeClaim>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(_ => Copy(_claim));
 		_client.GetAsync<V1Pod>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(pod);
-		_client.UpdateStatusAsync(Arg.Any<V1Alpha1ChromaServer>(), Arg.Any<CancellationToken>()).Returns(call =>
+		_client.UpdateStatusAsync(Arg.Any<V1Alpha1Chroma>(), Arg.Any<CancellationToken>()).Returns(call =>
 		{
-			var server = call.Arg<V1Alpha1ChromaServer>();
+			var server = call.Arg<V1Alpha1Chroma>();
 			_written = server.Status;
 			return server;
 		});
@@ -151,19 +151,19 @@ public class ControllerTests
 	{
 		var options = new OperatorOptions(Image153);
 		_server.Spec.Image = null;
-		_client.UpdateAsync(Arg.Any<V1Alpha1ChromaServer>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1ChromaServer>());
+		_client.UpdateAsync(Arg.Any<V1Alpha1Chroma>(), Arg.Any<CancellationToken>()).Returns(call => call.Arg<V1Alpha1Chroma>());
 		_client.UpdateAsync(Arg.Any<V1PersistentVolumeClaim>(), Arg.Any<CancellationToken>()).Returns(call =>
 		{
 			_claim = call.Arg<V1PersistentVolumeClaim>();
 			return _claim;
 		});
-		await new ChromaServerController(_client, options, NullLogger<ChromaServerController>.Instance).ReconcileAsync(_server, CancellationToken.None);
-		await _client.Received().UpdateAsync(Arg.Is<V1Alpha1ChromaServer>(s => s.Spec.Image == Image153), Arg.Any<CancellationToken>());
+		await new ChromaController(_client, options, NullLogger<ChromaController>.Instance).ReconcileAsync(_server, CancellationToken.None);
+		await _client.Received().UpdateAsync(Arg.Is<V1Alpha1Chroma>(s => s.Spec.Image == Image153), Arg.Any<CancellationToken>());
 		Assert.That(_written?.DataVersion, Is.EqualTo("1.5.9"));
 		Assert.That(_claim.Metadata.Annotations[Labels.ClaimDataVersion], Is.EqualTo("1.5.9"));
 	}
 
-	private ChromaServerController Controller() => new(_client, Defaults, NullLogger<ChromaServerController>.Instance);
+	private ChromaController Controller() => new(_client, Defaults, NullLogger<ChromaController>.Instance);
 
 	private static V1PersistentVolumeClaim Copy(V1PersistentVolumeClaim claim) =>
 		k8s.KubernetesJson.Deserialize<V1PersistentVolumeClaim>(k8s.KubernetesJson.Serialize(claim));
