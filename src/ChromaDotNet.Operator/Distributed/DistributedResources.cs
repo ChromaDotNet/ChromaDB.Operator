@@ -8,7 +8,7 @@ namespace ChromaDotNet.Operator.Distributed;
 /// <summary>
 /// The objects of a distributed Chroma: those of helm template of the chart distributed-chroma of the version, with the values the
 /// operator derives from the spec, over values.yaml and values.dev.yaml of the chart (build/chart.sh writes them for ChartTests). The
-/// differences from the chart are only these (OPERATOR-DESIGN.md §7.4):
+/// differences from the chart are only these:
 /// <list type="number">
 /// <item>the MemberLists have <c>members: []</c> instead of null;</item>
 /// <item>no Namespace: the Chroma lives in it already;</item>

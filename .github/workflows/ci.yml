@@ -1,0 +1,44 @@
+# The checks of every change: build and unit tests; the manifest and the reference of the chart are those the scripts generate;
+# the end-to-end tests on a k3d cluster of the runner.
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet build ChromaDB.Operator.slnx -c Release
+      - run: dotnet test tests/ChromaDotNet.Operator.Tests -c Release --no-build
+      - name: The manifest is the one of the code
+        run: |
+          bash build/manifest.sh dev
+          git diff --exit-code -- deploy
+      - name: The reference of the chart is the output of Helm
+        run: |
+          bash build/chart.sh
+          git diff --exit-code -- tests/ChromaDotNet.Operator.Tests/Chart src/ChromaDotNet.Operator/Distributed deploy/memberlist-crd.yaml
+  e2e:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: A k3d cluster
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/v5.8.3/install.sh | TAG=v5.8.3 bash
+          k3d cluster create chroma-op --kubeconfig-switch-context=false --wait
+          k3d kubeconfig get chroma-op > "$RUNNER_TEMP/kubeconfig"
+      - name: End-to-end tests
+        run: CHROMA_OPERATOR_KUBECONFIG="$RUNNER_TEMP/kubeconfig" bash build/e2e.sh

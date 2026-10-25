@@ -17,7 +17,7 @@ public sealed record PostgresTarget(string Namespace, string Host, int Port, str
 public sealed record BucketTarget(string Namespace, string? Endpoint, string Bucket, string Region, string AccessKeyId, string SecretAccessKey);
 
 /// <summary>
-/// The external Postgres and bucket of a distributed Chroma, checked before anything starts (OPERATOR-DESIGN.md §7.3): without them
+/// The external Postgres and bucket of a distributed Chroma, checked before anything starts: without them
 /// nothing works, and the components would only fail one by one, with errors far from the cause.
 /// </summary>
 public interface IDependencyChecks

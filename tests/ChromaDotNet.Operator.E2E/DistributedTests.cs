@@ -12,7 +12,7 @@ namespace ChromaDotNet.Operator.E2E;
 /// Distributed Chroma on the test cluster, with Postgres and SeaweedFS in the namespace of the test (distributed-deps.yaml). On a machine
 /// without AVX-512, like the k3d cluster of this repository, only the sysdb, the migration Job and the log service run: the images of
 /// query, compaction, garbage collector, work queue and fn-consumer end with SIGILL (exit code 132). The tests check what runs there;
-/// the search, the restarts and the upgrades run on AKS (OPERATOR-DESIGN.md §7.6).
+/// the search, the restarts and the upgrades need a cluster with AVX-512.
 /// </summary>
 public class DistributedTests
 {

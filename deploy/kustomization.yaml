@@ -54,13 +54,13 @@ patches:
         path: /spec/template/spec/containers/0/readinessProbe
         value: {httpGet: {path: /healthz, port: health}, periodSeconds: 5}
       # The image of a Chroma without spec.image, and the repositories a Chroma can use (comma separated, <path>/* for the repositories
-      # under a path, or *): those of single-node Chroma and the nine of distributed Chroma.
+      # under a path, or *): those of single-node Chroma and of VecturaDB, and the nine of distributed Chroma.
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value: {name: CHROMA_DEFAULT_IMAGE, value: "docker.io/chromadb/chroma:1.5.9"}
       - op: add
         path: /spec/template/spec/containers/0/env/-
-        value: {name: CHROMA_ALLOWED_IMAGES, value: "docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma,docker.io/chromadb/rust-frontend-service-oss,docker.io/chromadb/sysdb-service,docker.io/chromadb/sysdb-migration,docker.io/chromadb/rust-log-service,docker.io/chromadb/query-service,docker.io/chromadb/compactor-service,docker.io/chromadb/garbage-collector-service,docker.io/chromadb/work-queue-service,docker.io/chromadb/fn-consumer-service"}
+        value: {name: CHROMA_ALLOWED_IMAGES, value: "docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma,ghcr.io/vecturadb/vecturadb,docker.io/chromadb/rust-frontend-service-oss,docker.io/chromadb/sysdb-service,docker.io/chromadb/sysdb-migration,docker.io/chromadb/rust-log-service,docker.io/chromadb/query-service,docker.io/chromadb/compactor-service,docker.io/chromadb/garbage-collector-service,docker.io/chromadb/work-queue-service,docker.io/chromadb/fn-consumer-service"}
   # The CLI binds the role to the ServiceAccount default of the namespace: the operator has one of its own.
   - target:
       kind: ClusterRoleBinding

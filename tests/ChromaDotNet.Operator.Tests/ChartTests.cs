@@ -12,8 +12,8 @@ namespace ChromaDotNet.Operator.Tests;
 
 /// <summary>
 /// The objects of a distributed Chroma are those of helm template of the chart distributed-chroma, for the values the operator derives
-/// from the spec (OPERATOR-DESIGN.md §7.3). build/chart.sh renders the chart for each case into Chart/&lt;case&gt;.yaml; the operator
-/// builds the objects for Chart/&lt;case&gt;.chroma.yaml, and they must be the same, but for the differences of §7.4: no Namespace,
+/// from the spec. build/chart.sh renders the chart for each case into Chart/&lt;case&gt;.yaml; the operator
+/// builds the objects for Chart/&lt;case&gt;.chroma.yaml, and they must be the same, but for the differences of DistributedResources: no Namespace,
 /// members [] instead of null, the Chroma as controller and the two labels of the operator. Values are compared as text, as YAML
 /// writes them: 2 and "2" are the same quantity for the API.
 /// </summary>
@@ -21,6 +21,7 @@ public class ChartTests
 {
 	[TestCase("default")]
 	[TestCase("custom")]
+	[TestCase("previous")]
 	public void ObjectsAreThoseOfTheChart(string name)
 	{
 		var chroma = LoadChroma(name);

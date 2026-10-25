@@ -12,6 +12,7 @@ namespace ChromaDotNet.Operator.Entities;
 [GenericAdditionalPrinterColumn(".spec.mode", "Mode", "string")]
 [GenericAdditionalPrinterColumn(".status.phase", "Phase", "string")]
 [GenericAdditionalPrinterColumn(".status.image", "Image", "string")]
+[GenericAdditionalPrinterColumn(".status.dataProduct", "Product", "string")]
 [GenericAdditionalPrinterColumn(".status.dataVersion", "Data", "string")]
 [GenericAdditionalPrinterColumn(".status.version", "Version", "string")]
 [GenericAdditionalPrinterColumn(".metadata.creationTimestamp", "Age", "date")]
@@ -20,8 +21,8 @@ namespace ChromaDotNet.Operator.Entities;
 	message: "The name of a Chroma is a DNS label of at most 60 characters: lowercase letters, digits and '-', starting with a letter and ending with a letter or a digit.")]
 // Each mode has its own fields: storage for single-node, distributed for distributed. The other fields of single-node do not apply to
 // the distributed mode, whose components have theirs under spec.distributed.
-[ValidationRule("self.spec.mode == 'distributed' ? has(self.spec.distributed) && !has(self.spec.storage) && !has(self.spec.image) && !has(self.spec.imagePullPolicy) && !has(self.spec.resources) && !has(self.spec.config) && !has(self.spec.service) && !has(self.spec.pvcDeletionPolicy) && !has(self.spec.nodeSelector) && !has(self.spec.tolerations) && !has(self.spec.priorityClassName) : has(self.spec.storage) && !has(self.spec.distributed)",
-	message: "With mode single-node, spec.storage is required and spec.distributed is not used. With mode distributed, spec.distributed is required, and the fields of single-node (storage, image, imagePullPolicy, resources, config, service, pvcDeletionPolicy, nodeSelector, tolerations, priorityClassName) are not used: the components have theirs under spec.distributed.")]
+[ValidationRule("self.spec.mode == 'distributed' ? has(self.spec.distributed) && !has(self.spec.storage) && !has(self.spec.image) && !has(self.spec.imagePullPolicy) && !has(self.spec.resources) && !has(self.spec.config) && !has(self.spec.service) && !has(self.spec.pvcDeletionPolicy) && !has(self.spec.nodeSelector) && !has(self.spec.tolerations) && !has(self.spec.priorityClassName) && !has(self.spec.product) : has(self.spec.storage) && !has(self.spec.distributed)",
+	message: "With mode single-node, spec.storage is required and spec.distributed is not used. With mode distributed, spec.distributed is required, and the fields of single-node (storage, image, product, imagePullPolicy, resources, config, service, pvcDeletionPolicy, nodeSelector, tolerations, priorityClassName) are not used: the components have theirs under spec.distributed.")]
 public sealed partial class V1Alpha1Chroma
 	: CustomKubernetesEntity<V1Alpha1Chroma.ChromaSpec, V1Alpha1Chroma.ChromaStatus>
 {
@@ -43,10 +44,14 @@ public sealed partial class V1Alpha1Chroma
 		[ValidationRule("self == oldSelf", message: "spec.mode cannot change after creation: the data of single-node and distributed Chroma are not the same; create a new Chroma and copy the data with chroma copy.")]
 		public string Mode { get; set; } = SingleNodeMode;
 
-		/// <summary>The image of Chroma with an exact version tag, like docker.io/chromadb/chroma:1.5.9; a digest can follow it.</summary>
+		/// <summary>The image of Chroma or VecturaDB with an exact version tag, like docker.io/chromadb/chroma:1.5.9; a digest can follow it.</summary>
 		[Pattern(ChromaImage.Pattern)]
-		[Description("The image of Chroma with an exact version tag, like docker.io/chromadb/chroma:1.5.9, optionally followed by @sha256:<digest>. latest and development tags are refused. Empty: the default image of the operator, written here at the first pass. It must be in the repositories the operator allows.")]
+		[Description("The image of Chroma, or of VecturaDB, with an exact version tag, like docker.io/chromadb/chroma:1.5.9 or ghcr.io/vecturadb/vecturadb:1.0.0-preview.1, optionally followed by @sha256:<digest>. latest, preview and development tags are refused. Empty: the default image of the operator, written here at the first pass. It must be in the repositories the operator allows.")]
 		public string? Image { get; set; }
+
+		[Pattern("^(chroma|vecturadb)$")]
+		[Description("The product of the image, chroma or vecturadb, for a repository whose product the operator does not know, like a mirror. The operator knows docker.io/chromadb/chroma and ghcr.io/chroma-core/chroma (chroma) and ghcr.io/vecturadb/vecturadb (vecturadb). Empty for those.")]
+		public string? Product { get; set; }
 
 		[Description("The pull policy of the image: Always, IfNotPresent or Never. IfNotPresent by default.")]
 		[Pattern("^(Always|IfNotPresent|Never)$")]
@@ -83,7 +88,7 @@ public sealed partial class V1Alpha1Chroma
 
 	/// <summary>
 	/// A distributed Chroma: the components of the chart distributed-chroma, with the values the operator derives from these fields. The
-	/// operator creates the objects of helm template for the chart of <see cref="Version"/>, and only those (OPERATOR-DESIGN.md §7).
+	/// operator creates the objects of helm template for the chart of <see cref="Version"/>, and only those.
 	/// </summary>
 	public sealed class DistributedSpec
 	{
@@ -293,8 +298,14 @@ public sealed partial class V1Alpha1Chroma
 		[Description("The newest image of a Pod of the server that is allowed and not older than the data: the image a server whose spec is refused starts again with.")]
 		public string? RecoveryImage { get; set; }
 
-		[Description("The highest version of Chroma that has opened the data. An image older than this is refused, since Chroma does not open data migrated by a newer version.")]
+		[Description("The highest version of dataProduct that has opened the data. An image older than this is refused, since Chroma does not open data migrated by a newer version.")]
 		public string? DataVersion { get; set; }
+
+		[Description("The product that opened the data last, chroma or vecturadb. The data passes from one product to the other only along the passages the operator knows.")]
+		public string? DataProduct { get; set; }
+
+		[Description("Once both products have opened the data, the highest version of each, like chroma: 1.5.9 and vecturadb: 1.0.0-preview.1. An image older than the one of its product is refused, also after the data passed to the other product.")]
+		public IDictionary<string, string>? DataVersions { get; set; }
 
 		[Description("True when an image without a version ran on the data, so that its version is not known: no Pod is replaced or started until the annotation chroma.chromadotnet.org/declared-data-version says it.")]
 		public bool? DataVersionUnknown { get; set; }

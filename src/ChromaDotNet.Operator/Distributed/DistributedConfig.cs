@@ -5,7 +5,7 @@ namespace ChromaDotNet.Operator.Distributed;
 /// <summary>
 /// The config files of the services of distributed Chroma: the sample files of the repository of Chroma at the commit of the version,
 /// rust/frontend/sample_configs/distributed.yaml and rust/worker/chroma_config.yaml, as Tilt and the tests of Chroma use them, with
-/// the corrections of OPERATOR-DESIGN.md §7.2 and nothing else. build/chart.sh makes the same corrections with sed for the reference.
+/// the corrections below and nothing else. build/chart.sh makes the same corrections with sed for the reference.
 /// They hold no secrets: the credentials come from Secrets through the environment.
 /// </summary>
 internal static class DistributedConfig

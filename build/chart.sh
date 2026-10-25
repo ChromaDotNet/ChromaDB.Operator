@@ -1,29 +1,38 @@
 #!/bin/bash
-# Usage: build/chart.sh. The reference of the distributed mode (OPERATOR-DESIGN.md §7.3): for each case of the tests it renders
+# Usage: build/chart.sh. The reference of the distributed mode: for each case of the tests it renders
 # the chart distributed-chroma of Chroma with helm template, with the values the operator derives from the spec of the case,
 # into tests/ChromaDotNet.Operator.Tests/Chart. The operator must create the same objects; ChartTests compares them.
 # It also fetches the files the operator embeds from the same commit of Chroma: the config files of the services, and the
-# MemberList CRD of the chart for deploy/. A new chart: change chart_version and commit, run this, read the diff, adapt the code.
+# MemberList CRD of the chart for deploy/. The versions are those of DistributedVersion.Known, with their charts: a new version gets
+# its line in versions and a case, then this runs, the diff is read and the code adapted.
 # Needs helm 3.8 or later and the network (ghcr.io, raw.githubusercontent.com); it reads no cluster.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-chart_version=0.1.94
-commit=52ce8448cb38a498f1660d55ea80df25b78f000a
-tag=${commit:0:7}
+# The commit of Chroma and the chart of the same commit, newest first.
+versions=(
+  "52ce8448cb38a498f1660d55ea80df25b78f000a 0.1.94"
+  "26e51e79746ac8b3c2ff9d5fa9bada26f5acdbc8 0.1.93"
+)
 out=tests/ChromaDotNet.Operator.Tests/Chart
-configs=src/ChromaDotNet.Operator/Distributed/$tag
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+mkdir -p "$out"
 
-helm pull oci://ghcr.io/chroma-core/helm-charts/distributed-chroma --version "$chart_version" --untar --untardir "$work" >/dev/null
-chart=$work/distributed-chroma
-mkdir -p "$configs" "$out"
-raw=https://raw.githubusercontent.com/chroma-core/chroma/$commit
-curl -fsSL "$raw/rust/frontend/sample_configs/distributed.yaml" -o "$configs/frontend.yaml"
-curl -fsSL "$raw/rust/worker/chroma_config.yaml" -o "$configs/worker.yaml"
-cp "$chart/crds/memberlist_crd.yaml" deploy/memberlist-crd.yaml
+# The chart and the config files of a version, which becomes the one of the next renders.
+use() { # commit chart_version
+  commit=$1 chart_version=$2 tag=${1:0:7}
+  configs=src/ChromaDotNet.Operator/Distributed/$tag
+  chart=$work/$tag/distributed-chroma
+  if [ ! -d "$chart" ]; then
+    helm pull oci://ghcr.io/chroma-core/helm-charts/distributed-chroma --version "$chart_version" --untar --untardir "$work/$tag" >/dev/null
+    mkdir -p "$configs"
+    local raw=https://raw.githubusercontent.com/chroma-core/chroma/$commit
+    curl -fsSL "$raw/rust/frontend/sample_configs/distributed.yaml" -o "$configs/frontend.yaml"
+    curl -fsSL "$raw/rust/worker/chroma_config.yaml" -o "$configs/worker.yaml"
+  fi
+}
 
-# The corrections of OPERATOR-DESIGN.md §7.2 to a config file of Chroma, as the operator makes them in DistributedConfig:
+# The corrections to a config file of Chroma, as the operator makes them in DistributedConfig:
 # 1. every storage block from the Minio mode, with its fixed development keys and endpoint, to the AWS mode, which reads AWS_*
 #    from the environment; the block of the garbage collector has no credentials at all (Minio by default), so it gets them;
 # 2. the namespace of the Chroma in the names of the services and of the MemberLists;
@@ -41,14 +50,24 @@ configure() { # file namespace bucket blocks: the number of storage blocks witho
       -e "s/\.chroma\.svc\.cluster\.local/.$2.svc.cluster.local/g" \
       -e "s/bucket: \"chroma-storage\"/bucket: \"$3\"/"
 }
-configure "$configs/worker.yaml" chroma chroma-storage 1 >"$work/check.yaml"
-if grep -q 'credentials: "Minio"' "$work/check.yaml" || [ "$(grep -c 'credentials: "AWS"' "$work/check.yaml")" != 8 ]; then
-  echo "The config file of the workers at $tag does not have the 7 storage blocks and the block of the garbage collector expected." >&2
-  exit 1
-fi
+# Every version: its config files have the storage blocks expected, and its chart the MemberList CRD of the newest.
+for version in "${versions[@]}"; do
+  use $version
+  configure "$configs/worker.yaml" chroma chroma-storage 1 >"$work/check.yaml"
+  if grep -q 'credentials: "Minio"' "$work/check.yaml" || [ "$(grep -c 'credentials: "AWS"' "$work/check.yaml")" != 8 ]; then
+    echo "The config file of the workers at $tag does not have the 7 storage blocks and the block of the garbage collector expected." >&2
+    exit 1
+  fi
+done
+use ${versions[0]}
+cp "$chart/crds/memberlist_crd.yaml" deploy/memberlist-crd.yaml
+for version in "${versions[@]:1}"; do
+  use $version
+  cmp -s "$chart/crds/memberlist_crd.yaml" deploy/memberlist-crd.yaml || { echo "The MemberList CRD of the chart $chart_version differs from the newest." >&2; exit 1; }
+done
 
 # The values the operator derives from a spec, after values.yaml and values.dev.yaml of the chart, for the published images and
-# for the external Postgres and object storage, whose credentials come from Secrets (OPERATOR-DESIGN.md §7.2, §7.3).
+# for the external Postgres and object storage, whose credentials come from Secrets.
 values() { # namespace registry bucket endpoint region pg_host pg_port pg_db pg_sslmode pg_secret s3_secret
   local ns=$1 registry=$2 bucket=$3 endpoint=$4 region=$5 host=$6 port=$7 db=$8 sslmode=$9 pg=${10} s3=${11}
   local endpoint_env='' endpoint_raw=''
@@ -176,7 +195,12 @@ render() { # case, then the parameters of values
   echo "$out/$case.yaml: $(grep -c '^kind:' "$out/$case.yaml") objects"
 }
 
+use ${versions[0]}
 render default chroma docker.io/chromadb chroma-storage http://minio.chroma.svc.cluster.local:9000 us-east-1 \
   postgres 5432 sysdb disable chroma-postgres chroma-storage
 render custom team-a registry.example.com/mirror vectors '' eu-west-1 \
   pg.databases.svc.cluster.local 6432 chroma_sysdb require team-a-pg team-a-s3
+# The version before, from which the trials update: the parameters of default.
+use ${versions[1]}
+render previous chroma docker.io/chromadb chroma-storage http://minio.chroma.svc.cluster.local:9000 us-east-1 \
+  postgres 5432 sysdb disable chroma-postgres chroma-storage
