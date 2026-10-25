@@ -348,8 +348,13 @@ the ready ones and the members of its MemberList. `version` is the version that 
 - **Connections the operator opens.** Whoever can create a Chroma can make the operator connect to a host and port of their
   choice, through the checks of Postgres and of the bucket, so on a cluster shared by several teams a NetworkPolicy that limits
   the egress of the operator is advisable.
-- **Reconciliation.** On AKS a change of a Chroma once waited for a restart of the operator, for a cause not known, and the resync
-  of every minute and the liveness probe described in [Install](#install) cover it.
+
+## Known limitations
+
+- **Reconciliation.** On AKS a change of a Chroma once waited for a restart of the operator, for a cause not known. Two safety nets,
+  described in [Install](#install), cover it:
+  - every Chroma goes back into the queue of the operator once a minute;
+  - when a Chroma has had no pass for 5 minutes, the liveness probe of the operator fails and Kubernetes restarts the operator.
 
 ## Development
 
