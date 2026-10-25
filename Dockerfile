@@ -8,7 +8,7 @@ COPY Directory.Build.props ./
 COPY src/ChromaDotNet.Operator/ src/ChromaDotNet.Operator/
 RUN dotnet publish src/ChromaDotNet.Operator/ChromaDotNet.Operator.csproj -c Release -a "$TARGETARCH" -o /out --nologo
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled@sha256:5165aeeb688df15e869a56a7584bb94bf16a14e0b3ba77b49fcdbe350f6b8020
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled@sha256:c89a6a61f494f20a5ae302990e814627a8d91b332fd4a8e7c1707c2d4da9555d
 WORKDIR /app
 COPY --from=build /out ./
 ENTRYPOINT ["dotnet", "ChromaDotNet.Operator.dll"]
