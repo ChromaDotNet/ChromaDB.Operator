@@ -202,7 +202,8 @@ internal sealed class TestCluster : IDisposable
 
 	/// <summary>
 	/// Waits until the Chroma satisfies the condition, and returns it; fails after the timeout with its status, the status of its
-	/// Pod, and the events of the namespace, so that a Pod that does not start can be told from an operator that does not act.
+	/// Pod, if it has one (a distributed Chroma has none), and the events of the namespace, so that a Pod that does not start can be
+	/// told from an operator that does not act.
 	/// </summary>
 	public async Task<V1Alpha1Chroma> WaitAsync(string name, Func<V1Alpha1Chroma, bool> condition, TimeSpan? timeout = null, string? what = null)
 	{
@@ -223,10 +224,13 @@ internal sealed class TestCluster : IDisposable
 			.OrderBy(e => e.LastTimestamp ?? e.EventTime)
 			.Select(e => $"{e.InvolvedObject.Kind}/{e.InvolvedObject.Name} {e.Reason}: {e.Message}")
 			.TakeLast(15);
-		Assert.Fail($"{name}: {what ?? "condition"} not met in {watch.Elapsed.TotalSeconds:0} s; status {KubernetesJson.Serialize(server?.Status)}; " +
-			$"Pod {KubernetesJson.Serialize(pod?.Status)}; events:\n{string.Join('\n', events)}");
+		Assert.Fail($"{name}: {what ?? "condition"} not met in {watch.Elapsed.TotalSeconds:0} s; status {Json(server?.Status)}; " +
+			$"Pod {Json(pod?.Status)}; events:\n{string.Join('\n', events)}");
 		return null!;
 	}
+
+	/// <summary>An object as JSON for a failure message: KubernetesJson.Serialize throws on null, and would hide the failure.</summary>
+	private static string Json(object? value) => value is null ? "none" : KubernetesJson.Serialize(value);
 
 	/// <summary>Waits until the object exists, and returns it; fails after the timeout.</summary>
 	public async Task<T> WaitExistsAsync<T>(string name, TimeSpan timeout) where T : class, IKubernetesObject<V1ObjectMeta>
@@ -240,7 +244,7 @@ internal sealed class TestCluster : IDisposable
 				return found;
 			}
 			if (watch.Elapsed > timeout)
-				Assert.Fail($"{typeof(T).Name} {name} not there after {watch.Elapsed.TotalSeconds:0} s; status of the Chroma: {KubernetesJson.Serialize((await Client.ListAsync<V1Alpha1Chroma>(Namespace)).FirstOrDefault()?.Status)}");
+				Assert.Fail($"{typeof(T).Name} {name} not there after {watch.Elapsed.TotalSeconds:0} s; status of the Chroma: {Json((await Client.ListAsync<V1Alpha1Chroma>(Namespace)).FirstOrDefault()?.Status)}");
 			await Task.Delay(1000);
 		}
 	}
