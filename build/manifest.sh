@@ -7,6 +7,8 @@ cd "$(dirname "$0")/.."
 tag=${1:-dev}
 kubectl=${KUBECTL:-kubectl}
 dotnet tool restore >/dev/null
+# The CLI compiles the project: its packages must be restored, also on a machine that has not built it, as in the release.
+dotnet restore src/ChromaDotNet.Operator/ChromaDotNet.Operator.csproj >/dev/null
 dotnet kubeops generate operator chroma-operator src/ChromaDotNet.Operator/ChromaDotNet.Operator.csproj --out deploy/generated \
   --clear-out --docker-image ghcr.io/chromadotnet/chroma-operator --docker-image-tag "$tag" --no-ansi >/dev/null
 # The Dockerfile of the CLI is not used: the one at the root builds the image.
