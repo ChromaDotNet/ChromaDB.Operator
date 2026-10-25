@@ -1,5 +1,6 @@
 using ChromaDotNet.Operator;
 using ChromaDotNet.Operator.Distributed;
+using k8s.LeaderElection;
 using KubeOps.Abstractions.Builder;
 using KubeOps.Operator;
 using Microsoft.AspNetCore.Builder;
@@ -22,9 +23,15 @@ builder.Services
 	.RegisterComponents();
 // The Pods change outside the watch of KubeOps, which follows the Chroma resources: their changes put the server in the queue at once.
 builder.Services.AddHostedService<PodWatcher>();
-// The probes of the Deployment: the process answers on ASPNETCORE_HTTP_PORTS.
-builder.Services.AddHealthChecks();
+// Every Chroma in the queue once a minute, for a change the queue lost.
+builder.Services.AddHostedService<Resync>();
+// The probes of the Deployment: the process answers on ASPNETCORE_HTTP_PORTS, and fails when the queue is stuck (Liveness).
+builder.Services.AddSingleton<Liveness>();
+builder.Services.AddHealthChecks().AddCheck<Liveness>("reconciliation");
 
 await using var app = builder.Build();
+// A replica that starts leading has had no pass yet: the time without passes counts from then.
+if (app.Services.GetService<LeaderElector>() is { } elector)
+	elector.OnStartedLeading += () => app.Services.GetRequiredService<Liveness>().StartedLeading(DateTime.UtcNow);
 app.MapHealthChecks("/healthz");
 await app.RunAsync();

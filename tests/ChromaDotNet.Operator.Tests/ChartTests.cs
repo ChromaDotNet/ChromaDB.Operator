@@ -12,8 +12,8 @@ namespace ChromaDotNet.Operator.Tests;
 
 /// <summary>
 /// The objects of a distributed Chroma are those of helm template of the chart distributed-chroma, for the values the operator derives
-/// from the spec (OPERATOR-DESIGN.md §7.3). build/chart.sh renders the chart for each case into Chart/&lt;case&gt;.yaml; the operator
-/// builds the objects for Chart/&lt;case&gt;.chroma.yaml, and they must be the same, but for the differences of §7.4: no Namespace,
+/// from the spec. build/chart.sh renders the chart for each case into Chart/&lt;case&gt;.yaml; the operator
+/// builds the objects for Chart/&lt;case&gt;.chroma.yaml, and they must be the same, but for the differences of DistributedResources: no Namespace,
 /// members [] instead of null, the Chroma as controller and the two labels of the operator. Values are compared as text, as YAML
 /// writes them: 2 and "2" are the same quantity for the API.
 /// </summary>
@@ -21,6 +21,7 @@ public class ChartTests
 {
 	[TestCase("default")]
 	[TestCase("custom")]
+	[TestCase("previous")]
 	public void ObjectsAreThoseOfTheChart(string name)
 	{
 		var chroma = LoadChroma(name);
@@ -94,6 +95,21 @@ public class ChartTests
 		Assert.That(worker.Split("credentials: \"AWS\"").Length - 1, Is.EqualTo(8));
 		var configs = DistributedResources.Foundation(chroma, DistributedVersion.Known[0]).OfType<V1ConfigMap>().Select(c => c.Data["config.yaml"]);
 		Assert.That(configs, Has.None.Contain("team-a-s3").And.None.Contain("team-a-pg").And.None.Contain("$PG_PASSWORD"));
+	}
+
+	// The compactor reads compaction_service.work_queue with the fields flat, fn-consumer fn_consumer_service.fn_consumer.work_queue: with
+	// the block of the sample file, under grpc, both use their default host, which is in the namespace chroma only.
+	[Test]
+	public void WorkQueueClientsAreWhereTheServicesReadThem()
+	{
+		var worker = new DeserializerBuilder().Build().Deserialize<Dictionary<object, object>>(DistributedConfig.Worker(DistributedVersion.Known[0], "team-a", "vectors"));
+		static object? At(object node, params string[] path) =>
+			path.Aggregate((object?)node, (n, key) => n is IDictionary<object, object> map && map.TryGetValue(key, out var value) ? value : null);
+		Assert.That(At(worker, "compaction_service", "work_queue", "host"), Is.EqualTo("work-queue-service.team-a"));
+		Assert.That(At(worker, "compaction_service", "work_queue", "grpc"), Is.Null);
+		Assert.That(At(worker, "fn_consumer_service", "fn_consumer", "work_queue", "host"), Is.EqualTo("work-queue-service.team-a"));
+		Assert.That(At(worker, "fn_consumer_service", "work_queue"), Is.Null);
+		Assert.That(At(worker, "work_queue_service", "work_queue", "storage_path"), Is.EqualTo("workqueue_state.parquet"), "the work queue itself is left as it is");
 	}
 
 	// The namespace is written before the bucket: a bucket ending in .chroma stays as it is.

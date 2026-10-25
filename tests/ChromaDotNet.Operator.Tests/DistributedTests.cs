@@ -10,7 +10,7 @@ using NUnit.Framework;
 
 namespace ChromaDotNet.Operator.Tests;
 
-/// <summary>The passes on a distributed Chroma (OPERATOR-DESIGN.md §7.3, §7.4), on a fake namespace.</summary>
+/// <summary>The passes on a distributed Chroma, on a fake namespace.</summary>
 public class DistributedTests
 {
 	private static readonly DateTime Now = new(2026, 10, 25, 12, 0, 0, DateTimeKind.Utc);
@@ -453,6 +453,44 @@ public class DistributedTests
 		Assert.That(_cluster.Applied, Does.Contain("Deployment/sysdb"));
 	}
 
+	// 26e51e7 to 52ce844: the migration Job of 52ce844 first, the components of 26e51e7 left as they are until it completes; then the
+	// tiers with the new images, and the Job of 26e51e7 deleted. Back to 26e51e7 is a downgrade.
+	[Test]
+	public async Task UpdateToTheNextVersion()
+	{
+		const string previous = "26e51e7";
+		var chroma = await ReadyAsync(previous);
+		Assert.That(_cluster.Status!.Version, Is.EqualTo(previous));
+		chroma.Spec.Distributed!.Version = Tag;
+		chroma.Metadata.Generation = 2;
+		_cluster.Applied.Clear();
+		await PassAsync(chroma);
+		Assert.That(_cluster.Status.Phase, Is.EqualTo("Migrating"));
+		Assert.That(_cluster.Applied, Does.Contain("Job/sysdb-migration-" + Tag).And.None.StartWith("Deployment/").And.None.StartWith("StatefulSet/"));
+
+		_cluster.CompleteJob("sysdb-migration-" + Tag);
+		await PassAsync(chroma);
+		Assert.That(_cluster.Get<V1Deployment>("Deployment", "sysdb").Spec.Template.Spec.Containers[0].Image, Is.EqualTo("docker.io/chromadb/sysdb-service:" + Tag));
+		Assert.That(_cluster.Get<V1StatefulSet>("StatefulSet", "query-service").Spec.Template.Spec.Containers[0].Image, Does.EndWith(":" + previous), "the workers wait for the sysdb");
+		Assert.That(_cluster.Objects.ContainsKey(("Job", "sysdb-migration-" + previous)), Is.False);
+		Assert.That(_cluster.Status.VersionHistory, Is.EqualTo(new[] { previous, Tag }));
+		Assert.That(_cluster.Status.Phase, Is.EqualTo("Updating"));
+
+		foreach (var tier in DistributedResources.Tiers)
+		{
+			foreach (var component in tier)
+				_cluster.RollOut(component, DistributedResources.Replicas(chroma, component));
+			await PassAsync(chroma);
+		}
+		Assert.That(_cluster.Status.Phase, Is.EqualTo("Ready"));
+		Assert.That(_cluster.Status.Version, Is.EqualTo(Tag));
+
+		chroma.Spec.Distributed.Version = previous;
+		chroma.Metadata.Generation = 3;
+		await PassAsync(chroma);
+		Assert.That(Condition("UpgradeBlocked").Reason, Is.EqualTo("Downgrade"));
+	}
+
 	[Test]
 	public void CoversIgnoresWhatTheApiAdds()
 	{
@@ -489,11 +527,12 @@ public class DistributedTests
 	};
 
 	/// <summary>A distributed Chroma whose components are all ready.</summary>
-	private async Task<V1Alpha1Chroma> ReadyAsync()
+	private async Task<V1Alpha1Chroma> ReadyAsync(string version = Tag)
 	{
 		var chroma = NewDistributed();
+		chroma.Spec.Distributed!.Version = version;
 		await PassAsync(chroma);
-		_cluster.CompleteJob("sysdb-migration-" + Tag);
+		_cluster.CompleteJob("sysdb-migration-" + version);
 		for (var i = 0; i < DistributedResources.Tiers.Count; i++)
 		{
 			await PassAsync(chroma);

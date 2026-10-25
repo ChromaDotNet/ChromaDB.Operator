@@ -1,13 +1,14 @@
 # ChromaDB.Operator
 
-A Kubernetes operator for [Chroma](https://www.trychroma.com/) 1.x, single-node and distributed, written in .NET with
+A Kubernetes operator for [Chroma](https://www.trychroma.com/) 1.x, single-node and distributed, and for
+[VecturaDB](https://github.com/VecturaDB/VecturaDB) single-node, written in .NET with
 [KubeOps](https://github.com/dotnet/dotnet-operator-sdk). It follows the patterns of [CloudNativePG](https://cloudnative-pg.io/):
 for single-node Chroma the operator manages the Pod and its PersistentVolumeClaim directly, without a StatefulSet; for distributed
 Chroma it creates the objects of the Helm chart of Chroma. Either way it keeps the state in the status of the resource.
 
 Community project, not affiliated with Chroma.
 
-> v0.1, work in progress: nothing is released yet, and the API can change.
+> v0.1: the API is `v1alpha1` and can change. The distributed mode and VecturaDB are previews.
 
 ## What v0.1 does
 
@@ -21,17 +22,28 @@ Community project, not affiliated with Chroma.
 - A new image replaces the Pod. `status.dataVersion` is the highest version of Chroma that has run on the data. An older image is
   refused, because Chroma migrates the data at its start and an older version does not open it again. Version 1.0.0, for example,
   panics on data opened by 1.5.9.
-- The image needs an exact version tag, like `docker.io/chromadb/chroma:1.5.9`. The API refuses `latest` and the development tags.
+- The image needs an exact version tag, like `docker.io/chromadb/chroma:1.5.9`, or a preview of VecturaDB, like
+  `ghcr.io/vecturadb/vecturadb:1.0.0-preview.2`. The API refuses `latest`, `preview` and the development tags.
+- A single-node Chroma can run VecturaDB, a fork of Chroma with the same API, on the same kind of resource and the same data. The
+  data passes from Chroma to VecturaDB, and from a VecturaDB to a newer one, only along the passages the operator knows, each tried on
+  a volume first: see [VecturaDB](#vecturadb).
 - Without an image, the operator writes its default image into the spec. A new version of the operator therefore does not change
   the version of the servers already created.
-- Only the repositories the operator allows can run. By default these are `docker.io/chromadb/chroma` and
-  `ghcr.io/chroma-core/chroma`. Whoever can create a Chroma chooses its image, and the operator runs it.
+- Only the repositories the operator allows can run. By default these are `docker.io/chromadb/chroma`,
+  `ghcr.io/chroma-core/chroma`, `ghcr.io/vecturadb/vecturadb`, and the images of distributed Chroma. Whoever can create a Chroma chooses
+  its image, and the operator runs it.
 
 Not yet: backups (with CSI VolumeSnapshots), resize of the claim, hibernation, metrics, a Helm chart, authentication.
 
 ## Install
 
-There is no published image yet. Build it, load it into the nodes of the cluster, and apply the manifest:
+The manifest of the latest release, with its image `ghcr.io/chromadotnet/chroma-operator` for amd64 and arm64:
+
+```
+kubectl apply -f https://github.com/ChromaDotNet/ChromaDB.Operator/releases/latest/download/chroma-operator.yaml
+```
+
+From the sources, build the image, load it into the nodes of the cluster, and apply the manifest of the repository:
 
 ```
 docker build -t ghcr.io/chromadotnet/chroma-operator:dev .
@@ -49,7 +61,7 @@ On other clusters, push the image to a registry the nodes can pull from, then se
 | Variable | Default | |
 |---|---|---|
 | `CHROMA_DEFAULT_IMAGE` | `docker.io/chromadb/chroma:1.5.9` | The image of a Chroma without `spec.image`. |
-| `CHROMA_ALLOWED_IMAGES` | `docker.io/chromadb/chroma`, `ghcr.io/chroma-core/chroma` and the nine images of distributed Chroma in `docker.io/chromadb` | The repositories a Chroma can use, separated by commas; `<path>/*` for every repository under a path, like a mirror; or `*` for any. |
+| `CHROMA_ALLOWED_IMAGES` | `docker.io/chromadb/chroma`, `ghcr.io/chroma-core/chroma`, `ghcr.io/vecturadb/vecturadb` and the nine images of distributed Chroma in `docker.io/chromadb` | The repositories a Chroma can use, separated by commas; `<path>/*` for every repository under a path, like a mirror; or `*` for any. |
 
 Who can create a Chroma is up to the RBAC of the cluster, as for any other resource.
 
@@ -69,6 +81,10 @@ One operator works at a time. The Deployment replaces its Pod with the strategy 
 `chroma-operator-leader` in its namespace, through a Role limited to it: with more replicas, or with a Pod left on a lost node,
 another one waits. When the leader goes, another replica takes over once the Lease expires (15 seconds). The liveness and readiness
 probes call `/healthz` on port 8080.
+
+The operator puts every Chroma in its queue again once a minute, from a list read from the API. `/healthz` fails when the leader has
+a Chroma with no pass for 5 minutes, and Kubernetes then restarts the operator. On AKS a change of a Chroma once waited
+for a restart of the operator to be applied. The cause is not known, and these two checks cover it.
 
 ## Uninstall
 
@@ -121,7 +137,8 @@ Clients connect to `http://demo-rw.<namespace>.svc:8000`, which is also in `stat
 | Field | |
 |---|---|
 | `mode` | `single-node` (default) or `distributed` (see below). It cannot change after the creation: the data of the two modes are not the same. |
-| `image` | The image of Chroma with an exact version tag, optionally followed by `@sha256:<digest>`. Empty: the default image of the operator, written into the spec. |
+| `image` | The image of Chroma or VecturaDB with an exact version tag, optionally followed by `@sha256:<digest>`. Empty: the default image of the operator, written into the spec. |
+| `product` | `chroma` or `vecturadb`, for an image of a repository whose product the operator does not know, like a mirror. Empty for the repositories it knows. |
 | `imagePullPolicy` | `IfNotPresent` by default. |
 | `storage.size`, `storage.storageClass` | The PersistentVolumeClaim of `/data`. An empty class means the default class of the cluster. |
 | `resources` | Requests and limits of the container. Write quantities as strings, like `"1"` or `500m`. |
@@ -138,13 +155,14 @@ The condition `Reconciled` appears after a pass that failed for another reason t
 - `ApiError`: an answer of the API like 500;
 - `Error`: no answer at all, like a network failure.
 
-The operator tries again after 10 seconds, then 20 and 40, up to 5 minutes, and sets `Reconciled` back to `True` once a pass goes
+The operator tries again after 10 seconds, then 20 and 40, then every minute, and sets `Reconciled` back to `True` once a pass goes
 through. The status also has:
 
 | Field | |
 |---|---|
 | `image` | The image of the Pod, once it is ready. |
 | `dataVersion` | The highest version of Chroma that has run on the data. It goes up before a newer Pod is created, since Chroma can migrate the data before the Pod reports that it started. |
+| `dataProduct` | The product that opened the data last: `chroma` or `vecturadb`. `dataVersion` is a version of it. |
 | `recoveryImage` | The newest image seen that is allowed and not older than the data: the image a server whose spec is refused starts again with. |
 | `dataVersionUnknown`, `dataVersionUnknownIncident` | Set when an image without a version ran on the data (see below). |
 | `endpoint`, `pod`, `pvc`, `observedGeneration` | |
@@ -199,6 +217,46 @@ after the creation, by hand, is replaced. `status.image` is then the admitted im
 the version of the data unknown, as an image like `latest` does (see above).
 
 **Names.** The name of a Chroma is a DNS label of at most 60 characters, so that its Service `<name>-rw` is a valid DNS label.
+
+## VecturaDB
+
+[VecturaDB](https://github.com/VecturaDB/VecturaDB) is a fork of Chroma with the same API, which adds sparse vectors, BM25, the
+Search API and collection fork to the single node of Chroma. Its image starts as the one of Chroma, on the same `/data`, so a single-node Chroma runs it with its image:
+
+```yaml
+spec:
+  image: ghcr.io/vecturadb/vecturadb:1.0.0-preview.2
+  storage:
+    size: 10Gi
+```
+
+**The product.** The operator cannot ask the server: `/api/v2/version` answers `1.0.0` for both. It takes the product from the
+repository of the image: `docker.io/chromadb/chroma` and `ghcr.io/chroma-core/chroma` are Chroma, `ghcr.io/vecturadb/vecturadb` is
+VecturaDB. For a mirror, `spec.product` says it. An image of an unknown repository without `spec.product` is refused
+(`UnknownProduct`), and so is a `spec.product` against a known repository (`ProductMismatch`).
+
+**The data knows its product.** `status.dataProduct` and the annotation `chroma.chromadotnet.org/data-product` of the claim say which
+product opened the data last, and `dataVersion` is a version of it. The versions of two products are never compared: VecturaDB
+`1.0.0-preview.2` on data of Chroma `1.5.9` is not a downgrade. A claim without the annotation is of Chroma.
+
+**The passages.** From Chroma to VecturaDB, and from a VecturaDB to a newer VecturaDB, the operator allows only the passages of its
+table, each one tried first on a volume with real data. Everything else is refused, without deductions from the versions:
+
+| From | To | Trial |
+|---|---|---|
+| Chroma 1.5.9 | VecturaDB 1.0.0-preview.2 | A volume opened by Chroma 1.5.9 with 200 dense records, then by VecturaDB: the dense records intact, with the same ids and results; BM25 and sparse vectors written and searched. |
+
+A passage outside the table keeps the running Pod, and `UpgradeBlocked` says why: `ProductChangeNotKnown` from Chroma,
+`UpgradeNotKnown` within VecturaDB. A new release of VecturaDB enters the table after the trial of the passage from the one before.
+
+**Back to Chroma.** Chroma 1.5.9 opens data of VecturaDB and reads its records, documents and metadata, but not the sparse vectors,
+which stay in the data. Writing with Chroma to collections with BM25 fails with the Python client, and other clients write records
+without their BM25 vectors, or leave the old ones on the documents they change. The [guide of VecturaDB](https://vecturadb.org/leaving-chroma-cloud/to-vecturadb.html) has what was
+measured, and the remedy; its advice is not to write with Chroma to data of VecturaDB that uses sparse vectors or BM25.
+
+The passage is refused (`ProductChange`) without the annotation `chroma.chromadotnet.org/allow-product-change: "true"`. With it,
+and while Chroma runs on the data, `UpgradeBlocked` stays `False` with the reason `ProductChangeAllowed` and the same explanation.
+Back to VecturaDB, the data goes along the table.
 
 ## A distributed Chroma
 
@@ -279,6 +337,19 @@ the ready ones and the members of its MemberList. `version` is the version that 
   rewrites the MemberLists without their labels and owner, so the operator deletes them when the Chroma is deleted. If the operator
   is not running at that moment, the MemberLists stay: `kubectl -n <namespace> delete memberlists --all`;
 - `values.dev.yaml` sets `CHROMA_ALLOW_RESET`, which lets anyone who reaches the frontend delete all the data: the operator does not.
+
+## Security considerations
+
+- **Secrets.** The ClusterRole of the operator can read Secrets in every namespace, for the credentials of Postgres and of the
+  bucket, but the operator reads only the Secrets of the namespace of the Chroma, which it takes from the resource and not from
+  its spec.
+- **Distributed Pods.** The Pods of a distributed Chroma use fixed hostPath volumes and have no securityContext, as in the chart of
+  Chroma, so they do not run in a namespace with the Pod Security level `baseline` or `restricted`.
+- **Connections the operator opens.** Whoever can create a Chroma can make the operator connect to a host and port of their
+  choice, through the checks of Postgres and of the bucket, so on a cluster shared by several teams a NetworkPolicy that limits
+  the egress of the operator is advisable.
+- **Reconciliation.** On AKS a change of a Chroma once waited for a restart of the operator, for a cause not known, and the resync
+  of every minute and the liveness probe described in [Install](#install) cover it.
 
 ## Development
 

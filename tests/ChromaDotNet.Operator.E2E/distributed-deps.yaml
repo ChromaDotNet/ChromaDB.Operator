@@ -1,7 +1,6 @@
 # The external Postgres and S3 of the end-to-end tests of distributed Chroma, in the namespace of the test: Postgres, SeaweedFS with an
 # S3 API without identities (it takes any key), the Secrets the Chroma names, and a Job that creates the bucket. Only for the tests: the
-# data is in emptyDir volumes. SeaweedFS needs more volumes than its default 8, and below 1% of free disk it goes read-only
-# (S3-SEAWEEDFS-MISURA.md).
+# data is in emptyDir volumes. SeaweedFS needs more volumes than its default 8, and below 1% of free disk it goes read-only.
 apiVersion: v1
 kind: Secret
 metadata: {name: chroma-postgres}

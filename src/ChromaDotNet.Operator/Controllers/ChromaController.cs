@@ -42,13 +42,15 @@ namespace ChromaDotNet.Operator.Controllers;
 	Verbs = RbacVerb.Get | RbacVerb.List | RbacVerb.Watch | RbacVerb.Create | RbacVerb.Update | RbacVerb.Patch | RbacVerb.Delete)]
 [GenericRbac(Groups = ["coordination.k8s.io"], Resources = ["leases"],
 	Verbs = RbacVerb.Get | RbacVerb.Watch | RbacVerb.Create | RbacVerb.Update | RbacVerb.Delete)]
-public sealed class ChromaController(IKubernetesClient client, OperatorOptions options, ILogger<ChromaController> logger, IDependencyChecks? checks = null)
+public sealed class ChromaController(IKubernetesClient client, OperatorOptions options, ILogger<ChromaController> logger, IDependencyChecks? checks = null,
+	Liveness? liveness = null)
 	: IEntityController<V1Alpha1Chroma>
 {
 	private readonly DistributedReconciler _distributed = new(client, options, checks ?? new DependencyChecks(), logger);
 
 	public static readonly TimeSpan FirstRetry = TimeSpan.FromSeconds(10);
-	public static readonly TimeSpan LastRetry = TimeSpan.FromMinutes(5);
+	/// <summary>The resync puts every Chroma in the queue for a pass within a minute: a later retry would not hold.</summary>
+	public static readonly TimeSpan LastRetry = Resync.Period;
 
 	/// <summary>The passes that failed in a row, by UID of the server: the delay before the next one doubles with each.</summary>
 	private static readonly ConcurrentDictionary<string, int> Failures = new();
@@ -56,7 +58,7 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 	/// <summary>
 	/// A pass. One that fails for another reason than the server, like an answer 500 of the API or no answer at all, does not throw: an
 	/// exception would be retried by KubeOps a few times, then dropped, and the server would not be reconciled until its next change. It
-	/// comes back after 10 seconds, then 20, 40, up to 5 minutes, and the condition Reconciled says why, if the API takes the status.
+	/// comes back after 10 seconds, then 20, 40, then every minute, and the condition Reconciled says why, if the API takes the status.
 	/// </summary>
 	public async Task<ReconciliationResult<V1Alpha1Chroma>> ReconcileAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
 	{
@@ -75,6 +77,10 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 		catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
 		{
 			return await FailedAsync(server, e, cancellationToken);
+		}
+		finally
+		{
+			liveness?.PassDone(server, DateTime.UtcNow);
 		}
 	}
 
@@ -160,19 +166,21 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 			}
 			var pvcDataVersion = pvc?.Metadata.Annotations?.TryGetValue(Labels.ClaimDataVersion, out var version) == true ? version : null;
 			var pvcUnknown = pvc?.Metadata.Annotations?.TryGetValue(Labels.ClaimDataVersionUnknown, out var unknown) == true && !string.IsNullOrEmpty(unknown) ? unknown : null;
+			var pvcProduct = pvc?.Metadata.Annotations?.TryGetValue(Labels.ClaimDataProduct, out var product) == true ? product : null;
+			var pvcVersions = pvc?.Metadata.Annotations?.TryGetValue(Labels.ClaimDataVersions, out var versions) == true ? versions : null;
 
 			// A pass that fails still records what a Pod of the server shows, and does nothing to the Pod.
 			var failing = conflict is not null || pvc is null;
 			var outcome = failing
-				? Reconciliation.Conflict(server, conflict ?? "", now, reason, ownedPod, pvcDataVersion, options, pvcUnknown)
-				: Reconciliation.Decide(server, pod, pvcDataVersion, now, options, pvcUnknown);
+				? Reconciliation.Conflict(server, conflict ?? "", now, reason, ownedPod, pvcDataVersion, options, pvcUnknown, pvcProduct, pvcVersions)
+				: Reconciliation.Decide(server, pod, pvcDataVersion, now, options, pvcUnknown, pvcProduct, pvcVersions);
 
 			// What the Pod has shown is written down before the Pod is touched: the data version on the claim, then the status. If the
 			// claim cannot be written, the status keeps it and the server fails with the reason, and the Pod is left alone: a deleted Pod
 			// could not tell the version again.
-			if (await RecordDataVersionAsync(server, pvc, outcome.Status, pvcDataVersion, pvcUnknown, cancellationToken) is ({ } claimRefused, var claimReason) && !failing)
+			if (await RecordDataVersionAsync(server, pvc, outcome.Status, pvcDataVersion, pvcUnknown, pvcProduct, cancellationToken) is ({ } claimRefused, var claimReason) && !failing)
 			{
-				outcome = Reconciliation.Conflict(server, claimRefused, now, claimReason, ownedPod, pvcDataVersion, options, pvcUnknown);
+				outcome = Reconciliation.Conflict(server, claimRefused, now, claimReason, ownedPod, pvcDataVersion, options, pvcUnknown, pvcProduct, pvcVersions);
 				failing = true;
 			}
 			var result = await WriteStatusAsync(server, outcome, cancellationToken);
@@ -199,7 +207,7 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 					// The replacement is checked first by the API, without being created: a Pod it would refuse as invalid, like requests
 					// above the limits, must not cost the running one. Other answers, like a quota counting the old Pod, do not stop it.
 					if (outcome.DesiredPod is { } replacement && await DryRunAsync(replacement, cancellationToken) is { } invalid)
-						return await WriteStatusAsync(server, Reconciliation.Conflict(server, invalid, now, "PodRefused", ownedPod, pvcDataVersion, options, pvcUnknown), cancellationToken);
+						return await WriteStatusAsync(server, Reconciliation.Conflict(server, invalid, now, "PodRefused", ownedPod, pvcDataVersion, options, pvcUnknown, pvcProduct, pvcVersions), cancellationToken);
 					var deleted = pod.Metadata.Name;
 					var why = outcome.Status.Conditions.First(c => c.Type == "Ready").Message;
 					Log.DeletingPod(logger, name, deleted, why);
@@ -254,13 +262,14 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 	/// </summary>
 	/// <param name="readVersion">The data version on the claim when this pass read it.</param>
 	/// <param name="readIncident">The incident on the claim when this pass read it.</param>
+	/// <param name="readProduct">The product of the data version on the claim when this pass read it.</param>
 	private async Task<(string? Conflict, string Reason)> RecordDataVersionAsync(V1Alpha1Chroma server, V1PersistentVolumeClaim? pvc,
-		V1Alpha1Chroma.ChromaStatus status, string? readVersion, string? readIncident, CancellationToken cancellationToken)
+		V1Alpha1Chroma.ChromaStatus status, string? readVersion, string? readIncident, string? readProduct, CancellationToken cancellationToken)
 	{
 		if (pvc is null)
 			return (null, "");
 		var changedMeanwhile = false;
-		var (claim, conflict, reason) = await ApiWrites.UpdateClaimAsync(client, server, pvc, c => RecordOn(c, status, readVersion, readIncident, ref changedMeanwhile), cancellationToken);
+		var (claim, conflict, reason) = await ApiWrites.UpdateClaimAsync(client, server, pvc, c => RecordOn(c, status, readVersion, readIncident, readProduct, ref changedMeanwhile), cancellationToken);
 		// Another writer changed the data version or the incident while this pass wrote them: both are kept, merged, and the pass stops
 		// without touching the Pod, so that the next pass decides from the claim as it is now.
 		if (conflict is null && changedMeanwhile)
@@ -269,18 +278,41 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 	}
 
 	/// <summary>
-	/// Writes the data version and the incident of the status on the claim, merged with what the claim has now: a version is never
-	/// lowered, and an incident the claim got from elsewhere is not cleared.
+	/// Writes the data version and the incident of the status on the claim, merged with what the claim has now: the highest version of
+	/// a product is never lowered, and an incident the claim got from elsewhere is not cleared. The product is the one of the status: the
+	/// data has passed to it.
 	/// </summary>
-	private static bool RecordOn(V1PersistentVolumeClaim pvc, V1Alpha1Chroma.ChromaStatus status, string? readVersion, string? readIncident, ref bool changedMeanwhile)
+	private static bool RecordOn(V1PersistentVolumeClaim pvc, V1Alpha1Chroma.ChromaStatus status, string? readVersion, string? readIncident, string? readProduct, ref bool changedMeanwhile)
 	{
 		var annotations = pvc.Metadata.Annotations is null ? new Dictionary<string, string>() : new Dictionary<string, string>(pvc.Metadata.Annotations);
 		var before = new Dictionary<string, string>(annotations);
 		var claimVersion = annotations.TryGetValue(Labels.ClaimDataVersion, out var v) ? v : null;
 		var claimIncident = annotations.TryGetValue(Labels.ClaimDataVersionUnknown, out var i) && !string.IsNullOrEmpty(i) ? i : null;
-		changedMeanwhile |= claimVersion != readVersion || claimIncident != readIncident;
-		if (Reconciliation.Max(status.DataVersion, claimVersion) is { } version)
-			annotations[Labels.ClaimDataVersion] = version;
+		var claimProduct = annotations.TryGetValue(Labels.ClaimDataProduct, out var p) ? p : null;
+		changedMeanwhile |= claimVersion != readVersion || claimIncident != readIncident || claimProduct != readProduct;
+		// The highest version of each product, of the claim and of the status together: the data version of the claim is the one of the
+		// product of the status, which opened the data last.
+		var data = Reconciliation.StateOf(status);
+		var highest = Reconciliation.ParseVersions(annotations.GetValueOrDefault(Labels.ClaimDataVersions));
+		if (ChromaImage.Parse(claimVersion) is { } claimed)
+			Reconciliation.Raise(highest, Products.Parse(claimProduct) ?? Products.Chroma, claimed);
+		foreach (var (product, version) in data.Highest)
+			Reconciliation.Raise(highest, product, version);
+		if (status.DataProduct is not null || status.DataVersion is not null)
+		{
+			// The version of the product that opened the data last; without it, as after an image without a version, none: a version of
+			// another product would read as one of this.
+			if (highest.TryGetValue(data.Product, out var current))
+				annotations[Labels.ClaimDataVersion] = current.ToString();
+			else
+				annotations.Remove(Labels.ClaimDataVersion);
+			// A claim without the product is of Chroma: the annotation is written for VecturaDB, or to change it; the versions of each
+			// product once another product than this one has opened the data.
+			if (data.Product != Products.Chroma || claimProduct is not null)
+				annotations[Labels.ClaimDataProduct] = data.Product;
+			if (highest.Keys.Any(p => p != data.Product) || annotations.ContainsKey(Labels.ClaimDataVersions))
+				annotations[Labels.ClaimDataVersions] = Reconciliation.FormatVersions(highest);
+		}
 		if (status.DataVersionUnknown == true && status.DataVersionUnknownIncident is { } incident)
 			annotations[Labels.ClaimDataVersionUnknown] = claimIncident is not null && claimIncident != readIncident ? claimIncident : incident;
 		else if (claimIncident is not null && claimIncident == readIncident)

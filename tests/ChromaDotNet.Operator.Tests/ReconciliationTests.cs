@@ -189,11 +189,15 @@ public class ReconciliationTests
 		Assert.That(outcome.Status.Phase, Is.EqualTo("Failed"));
 	}
 
+	// An image of a repository whose product the operator does not know, like a mirror, runs with spec.product.
 	[Test]
 	public void AnyImageWhenTheAdministratorAllowsIt()
 	{
-		var outcome = Reconciliation.Decide(NewChroma("registry.local:5055/team/chroma:1.5.9"), null, null, Now, new OperatorOptions(allowedImages: "*"));
+		var server = NewChroma("registry.local:5055/team/chroma:1.5.9");
+		server.Spec.Product = "chroma";
+		var outcome = Reconciliation.Decide(server, null, null, Now, new OperatorOptions(allowedImages: "*"));
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.Create));
+		Assert.That(outcome.Status.DataProduct, Is.EqualTo("chroma"));
 	}
 
 	// The running Pod stays, and what it shows is still recorded.

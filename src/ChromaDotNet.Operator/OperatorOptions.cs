@@ -10,8 +10,8 @@ namespace ChromaDotNet.Operator;
 /// POSTGRES_IMAGE_NAME.</item>
 /// <item><c>CHROMA_ALLOWED_IMAGES</c>: the repositories a Chroma can use, separated by commas; <c>&lt;path&gt;/*</c> for every
 /// repository under a path, like a mirror of the images of distributed Chroma; or <c>*</c> for any. Who can create a Chroma chooses
-/// its image, and the operator runs it: without a list, a Chroma could run any image. By default the image of single-node Chroma and
-/// the nine images of distributed Chroma that Chroma publishes.</item>
+/// its image, and the operator runs it: without a list, a Chroma could run any image. By default the images of single-node Chroma and
+/// of VecturaDB, and the nine images of distributed Chroma that Chroma publishes.</item>
 /// </list>
 /// </summary>
 public sealed class OperatorOptions
@@ -19,7 +19,7 @@ public sealed class OperatorOptions
 	public const string DefaultImageVariable = "CHROMA_DEFAULT_IMAGE";
 	public const string AllowedImagesVariable = "CHROMA_ALLOWED_IMAGES";
 	public const string BuiltInDefaultImage = "docker.io/chromadb/chroma:1.5.9";
-	public const string BuiltInAllowedImages = "docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma," +
+	public const string BuiltInAllowedImages = "docker.io/chromadb/chroma,ghcr.io/chroma-core/chroma,ghcr.io/vecturadb/vecturadb," +
 		"docker.io/chromadb/rust-frontend-service-oss,docker.io/chromadb/sysdb-service,docker.io/chromadb/sysdb-migration," +
 		"docker.io/chromadb/rust-log-service,docker.io/chromadb/query-service,docker.io/chromadb/compactor-service," +
 		"docker.io/chromadb/garbage-collector-service,docker.io/chromadb/work-queue-service,docker.io/chromadb/fn-consumer-service";

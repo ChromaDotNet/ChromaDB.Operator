@@ -20,6 +20,9 @@ internal static class Labels
 	/// <summary>On a Chroma, "true" allows an image older than status.dataVersion.</summary>
 	public const string AllowDowngrade = Group + "/allow-downgrade";
 
+	/// <summary>On a Chroma, "true" allows Chroma on data that VecturaDB opened last (<see cref="Passages"/>).</summary>
+	public const string AllowProductChange = Group + "/allow-product-change";
+
 	/// <summary>
 	/// On a Chroma, the version an administrator says the data has, when an image without a version ran on it, with the code of the
 	/// incident it resolves: &lt;x.y.z&gt;/&lt;code&gt;, the code being status.dataVersionUnknownIncident.
@@ -28,6 +31,12 @@ internal static class Labels
 
 	/// <summary>On the claim, the data version the operator recorded.</summary>
 	public const string ClaimDataVersion = Group + "/data-version";
+
+	/// <summary>On the claim, the product of the data version: chroma or vecturadb; a claim without it is of Chroma.</summary>
+	public const string ClaimDataProduct = Group + "/data-product";
+
+	/// <summary>On the claim, once both products have opened the data, the highest version of each: chroma=1.5.9,vecturadb=1.0.0-preview.2.</summary>
+	public const string ClaimDataVersions = Group + "/data-versions";
 
 	/// <summary>On the claim, the code of the incident when an image without a version ran on the data.</summary>
 	public const string ClaimDataVersionUnknown = Group + "/data-version-unknown";

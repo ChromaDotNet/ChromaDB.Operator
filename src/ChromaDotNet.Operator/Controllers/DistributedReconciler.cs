@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 namespace ChromaDotNet.Operator.Controllers;
 
 /// <summary>
-/// A pass on a distributed Chroma (OPERATOR-DESIGN.md §7). In order, and each step stops the pass when it fails, with the reason in the
+/// A pass on a distributed Chroma. In order, and each step stops the pass when it fails, with the reason in the
 /// status:
 /// <list type="number">
 /// <item>a version the operator knows, images it allows, the only distributed Chroma of the namespace, no downgrade;</item>

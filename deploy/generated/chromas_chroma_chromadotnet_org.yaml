@@ -26,6 +26,10 @@ spec:
       name: Image
       priority: 0
       type: string
+    - jsonPath: .status.dataProduct
+      name: Product
+      priority: 0
+      type: string
     - jsonPath: .status.dataVersion
       name: Data
       priority: 0
@@ -3411,9 +3415,9 @@ spec:
                 - version
                 type: object
               image:
-                description: 'The image of Chroma with an exact version tag, like docker.io/chromadb/chroma:1.5.9, optionally followed by @sha256:<digest>. latest and development tags are refused. Empty: the default image of the operator, written here at the first pass. It must be in the repositories the operator allows.'
+                description: 'The image of Chroma, or of VecturaDB, with an exact version tag, like docker.io/chromadb/chroma:1.5.9 or ghcr.io/vecturadb/vecturadb:1.0.0-preview.2, optionally followed by @sha256:<digest>. latest, preview and development tags are refused. Empty: the default image of the operator, written here at the first pass. It must be in the repositories the operator allows.'
                 nullable: true
-                pattern: ^\S+:[0-9]+\.[0-9]+\.[0-9]+(@sha256:[0-9a-f]{64})?$
+                pattern: ^\S+:[0-9]+\.[0-9]+\.[0-9]+(-preview\.[0-9]+)?(@sha256:[0-9a-f]{64})?$
                 type: string
               imagePullPolicy:
                 description: 'The pull policy of the image: Always, IfNotPresent or Never. IfNotPresent by default.'
@@ -3437,6 +3441,11 @@ spec:
               priorityClassName:
                 description: Priority class of the Pod.
                 nullable: true
+                type: string
+              product:
+                description: The product of the image, chroma or vecturadb, for a repository whose product the operator does not know, like a mirror. The operator knows docker.io/chromadb/chroma and ghcr.io/chroma-core/chroma (chroma) and ghcr.io/vecturadb/vecturadb (vecturadb). Empty for those.
+                nullable: true
+                pattern: ^(chroma|vecturadb)$
                 type: string
               pvcDeletionPolicy:
                 description: Retain (default) keeps the PersistentVolumeClaim when the Chroma is deleted; Delete deletes it with the data.
@@ -3562,8 +3571,12 @@ spec:
                       type: string
                   type: object
                 type: array
+              dataProduct:
+                description: The product that opened the data last, chroma or vecturadb. The data passes from one product to the other only along the passages the operator knows.
+                nullable: true
+                type: string
               dataVersion:
-                description: The highest version of Chroma that has opened the data. An image older than this is refused, since Chroma does not open data migrated by a newer version.
+                description: The highest version of dataProduct that has opened the data. An image older than this is refused, since Chroma does not open data migrated by a newer version.
                 nullable: true
                 type: string
               dataVersionDeclaredPod:
@@ -3578,6 +3591,12 @@ spec:
                 description: 'The code of the incident that made the data version unknown: the declaration names it, as <x.y.z>/<code>, so that it resolves this incident only.'
                 nullable: true
                 type: string
+              dataVersions:
+                additionalProperties:
+                  type: string
+                description: 'Once both products have opened the data, the highest version of each, like chroma: 1.5.9 and vecturadb: 1.0.0-preview.2. An image older than the one of its product is refused, also after the data passed to the other product.'
+                nullable: true
+                type: object
               endpoint:
                 description: The address of the Service, like http://demo-rw.rag.svc:8000.
                 nullable: true
@@ -3626,8 +3645,8 @@ spec:
         x-kubernetes-validations:
         - message: "The name of a Chroma is a DNS label of at most 60 characters: lowercase letters, digits and '-', starting with a letter and ending with a letter or a digit."
           rule: self.metadata.name.size() <= 60 && self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$')
-        - message: 'With mode single-node, spec.storage is required and spec.distributed is not used. With mode distributed, spec.distributed is required, and the fields of single-node (storage, image, imagePullPolicy, resources, config, service, pvcDeletionPolicy, nodeSelector, tolerations, priorityClassName) are not used: the components have theirs under spec.distributed.'
-          rule: "self.spec.mode == 'distributed' ? has(self.spec.distributed) && !has(self.spec.storage) && !has(self.spec.image) && !has(self.spec.imagePullPolicy) && !has(self.spec.resources) && !has(self.spec.config) && !has(self.spec.service) && !has(self.spec.pvcDeletionPolicy) && !has(self.spec.nodeSelector) && !has(self.spec.tolerations) && !has(self.spec.priorityClassName) : has(self.spec.storage) && !has(self.spec.distributed)"
+        - message: 'With mode single-node, spec.storage is required and spec.distributed is not used. With mode distributed, spec.distributed is required, and the fields of single-node (storage, image, product, imagePullPolicy, resources, config, service, pvcDeletionPolicy, nodeSelector, tolerations, priorityClassName) are not used: the components have theirs under spec.distributed.'
+          rule: "self.spec.mode == 'distributed' ? has(self.spec.distributed) && !has(self.spec.storage) && !has(self.spec.image) && !has(self.spec.imagePullPolicy) && !has(self.spec.resources) && !has(self.spec.config) && !has(self.spec.service) && !has(self.spec.pvcDeletionPolicy) && !has(self.spec.nodeSelector) && !has(self.spec.tolerations) && !has(self.spec.priorityClassName) && !has(self.spec.product) : has(self.spec.storage) && !has(self.spec.distributed)"
     served: true
     storage: true
     subresources:

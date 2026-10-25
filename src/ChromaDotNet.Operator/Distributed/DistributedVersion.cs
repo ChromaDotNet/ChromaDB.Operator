@@ -16,6 +16,7 @@ internal sealed record DistributedVersion(string Commit, string Chart)
 	public static readonly IReadOnlyList<DistributedVersion> Known =
 	[
 		new("52ce8448cb38a498f1660d55ea80df25b78f000a", "0.1.94"),
+		new("26e51e79746ac8b3c2ff9d5fa9bada26f5acdbc8", "0.1.93"),
 	];
 
 	/// <summary>The known version for spec.distributed.version, a tag or a whole commit; null for another.</summary>

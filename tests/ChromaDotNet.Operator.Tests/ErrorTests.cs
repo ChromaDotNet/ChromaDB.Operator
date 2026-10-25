@@ -85,7 +85,7 @@ public class ErrorTests
 		for (var i = 0; i < 8; i++)
 			delays.Add((await Controller().ReconcileAsync(_server, CancellationToken.None)).RequeueAfter);
 		Assert.That(delays.Take(3), Is.EqualTo(new TimeSpan?[] { TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(40) }));
-		Assert.That(delays.Max(), Is.EqualTo(TimeSpan.FromMinutes(5)));
+		Assert.That(delays.Max(), Is.EqualTo(TimeSpan.FromMinutes(1)), "the resync gives a pass within a minute");
 
 		failing = false;
 		_server.Status = Reconciliation.Decide(_server, pod, null, Now, Defaults).Status;
@@ -148,6 +148,18 @@ public class ErrorTests
 		await Controller().ReconcileAsync(_server, CancellationToken.None);
 		await Controller().DeletedAsync(_server, CancellationToken.None);
 		Assert.That((await Controller().ReconcileAsync(_server, CancellationToken.None)).RequeueAfter, Is.EqualTo(TimeSpan.FromSeconds(10)));
+	}
+
+	// A pass that fails is a pass for the liveness too: the queue is not stuck.
+	[Test]
+	public async Task FailedPassCountsForTheLiveness()
+	{
+		_client.GetAsync<V1Pod>(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException("connection refused"));
+		var liveness = new Liveness();
+		liveness.Listed([_server], DateTime.UtcNow - TimeSpan.FromMinutes(10));
+		Assert.That(liveness.Stuck(leading: true, DateTime.UtcNow), Is.Not.Null);
+		await new ChromaController(_client, Defaults, NullLogger<ChromaController>.Instance, liveness: liveness).ReconcileAsync(_server, CancellationToken.None);
+		Assert.That(liveness.Stuck(leading: true, DateTime.UtcNow), Is.Null);
 	}
 
 	private ChromaController Controller() => new(_client, Defaults, NullLogger<ChromaController>.Instance);
