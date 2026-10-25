@@ -1,5 +1,7 @@
 # ChromaDB.Operator
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ChromaDotNet/ChromaDB.Operator/badge)](https://scorecard.dev/viewer/?uri=github.com/ChromaDotNet/ChromaDB.Operator)
+
 A Kubernetes operator for [Chroma](https://www.trychroma.com/) 1.x, single-node and distributed, and for
 [VecturaDB](https://github.com/VecturaDB/VecturaDB) single-node, written in .NET with
 [KubeOps](https://github.com/dotnet/dotnet-operator-sdk). It follows the patterns of [CloudNativePG](https://cloudnative-pg.io/):
