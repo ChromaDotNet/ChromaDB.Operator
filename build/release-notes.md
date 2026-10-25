@@ -1,4 +1,4 @@
-A Kubernetes operator for [Chroma](https://www.trychroma.com/), written in .NET. Community project, not affiliated with Chroma.
+A Kubernetes operator for [Chroma](https://www.trychroma.com/), written in .NET. Independent project. Not affiliated with, endorsed by or sponsored by Chroma Inc. CHROMA is a registered trademark of Chroma Inc., used here only to describe compatibility.
 
 ```
 kubectl apply -f https://github.com/ChromaDotNet/ChromaDB.Operator/releases/latest/download/chroma-operator.yaml

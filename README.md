@@ -8,7 +8,7 @@ A Kubernetes operator for [Chroma](https://www.trychroma.com/) 1.x, single-node 
 for single-node Chroma the operator manages the Pod and its PersistentVolumeClaim directly, without a StatefulSet; for distributed
 Chroma it creates the objects of the Helm chart of Chroma. Either way it keeps the state in the status of the resource.
 
-Community project, not affiliated with Chroma.
+ChromaDotNet is an independent community project that provides .NET libraries and tools for Chroma. Independent project. Not affiliated with, endorsed by or sponsored by Chroma Inc. CHROMA is a registered trademark of Chroma Inc., used here only to describe compatibility. We use the name "Chroma" only to say which software our projects work with. It does not mean that Chroma Inc. made, approved or supports them.
 
 > v0.1: the API is `v1alpha1` and can change. The distributed mode and VecturaDB are previews.
 
