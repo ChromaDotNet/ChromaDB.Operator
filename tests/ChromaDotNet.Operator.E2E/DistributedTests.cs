@@ -54,15 +54,16 @@ public class DistributedTests
 		if (query.Ready < query.Replicas)
 			Assert.That(await _cluster.Client.GetAsync<V1Deployment>(DistributedResources.Frontend, _cluster.Namespace), Is.Null, "the frontend waits for the workers");
 
-		// The work queue: on this machine it ends with SIGILL, so it is never ready, and the operator recreates it after 180 s.
-		var workQueue = await _cluster.Client.GetAsync<V1StatefulSet>(DistributedResources.WorkQueue, _cluster.Namespace);
-		if (workQueue?.Status?.ReadyReplicas == 1)
-			TestContext.Out.WriteLine("The work queue is ready here: its repair is not checked.");
+		// The work queue: on a CPU without AVX-512 it ends with SIGILL, so it is never ready, and the operator recreates it after 180 s.
+		// On a CPU with AVX-512 it starts, and gets ready some seconds after its creation: its repair is then not checked. The work queue
+		// was just created with the query service, so the test waits for whichever comes first.
+		var settled = await _cluster.WaitAsync("chroma",
+			c => Condition(c, "Repaired")?.Reason == "WorkQueueRestarted" || Component(c, DistributedResources.WorkQueue) is { Ready: 1 },
+			TimeSpan.FromMinutes(5), "work queue restarted or ready");
+		if (Condition(settled, "Repaired")?.Reason == "WorkQueueRestarted")
+			Assert.That(Condition(settled, "Repaired")!.Message, Does.Contain("work-queue-service-0"));
 		else
-		{
-			var repaired = await _cluster.WaitAsync("chroma", c => Condition(c, "Repaired")?.Reason == "WorkQueueRestarted", TimeSpan.FromMinutes(5), "work queue restarted");
-			Assert.That(Condition(repaired, "Repaired")!.Message, Does.Contain("work-queue-service-0"));
-		}
+			TestContext.Out.WriteLine("The work queue is ready here: its repair is not checked.");
 
 		await _cluster.Client.DeleteAsync(listed);
 		await _cluster.WaitGoneAsync<V1Deployment>(DistributedResources.Sysdb);
