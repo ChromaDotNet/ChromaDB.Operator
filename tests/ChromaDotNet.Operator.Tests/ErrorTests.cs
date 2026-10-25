@@ -85,7 +85,7 @@ public class ErrorTests
 		for (var i = 0; i < 8; i++)
 			delays.Add((await Controller().ReconcileAsync(_server, CancellationToken.None)).RequeueAfter);
 		Assert.That(delays.Take(3), Is.EqualTo(new TimeSpan?[] { TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(40) }));
-		Assert.That(delays.Max(), Is.EqualTo(TimeSpan.FromMinutes(5)));
+		Assert.That(delays.Max(), Is.EqualTo(TimeSpan.FromMinutes(1)), "the resync gives a pass within a minute");
 
 		failing = false;
 		_server.Status = Reconciliation.Decide(_server, pod, null, Now, Defaults).Status;

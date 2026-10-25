@@ -151,7 +151,7 @@ The condition `Reconciled` appears after a pass that failed for another reason t
 - `ApiError`: an answer of the API like 500;
 - `Error`: no answer at all, like a network failure.
 
-The operator tries again after 10 seconds, then 20 and 40, up to 5 minutes, and sets `Reconciled` back to `True` once a pass goes
+The operator tries again after 10 seconds, then 20 and 40, then every minute, and sets `Reconciled` back to `True` once a pass goes
 through. The status also has:
 
 | Field | |

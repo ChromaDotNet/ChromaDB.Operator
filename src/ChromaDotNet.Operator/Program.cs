@@ -22,6 +22,8 @@ builder.Services
 	.RegisterComponents();
 // The Pods change outside the watch of KubeOps, which follows the Chroma resources: their changes put the server in the queue at once.
 builder.Services.AddHostedService<PodWatcher>();
+// Every Chroma in the queue once a minute, for a change the queue lost.
+builder.Services.AddHostedService<Resync>();
 // The probes of the Deployment: the process answers on ASPNETCORE_HTTP_PORTS.
 builder.Services.AddHealthChecks();
 

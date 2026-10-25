@@ -53,6 +53,8 @@ public sealed class DependencyChecks : IDependencyChecks
 			Timeout = (int)Timeout.TotalSeconds,
 			CommandTimeout = (int)Timeout.TotalSeconds,
 			Pooling = false,
+			// The image of the operator has no Kerberos: without this, Npgsql looks for libgssapi_krb5 at each check and logs an error.
+			GssEncryptionMode = GssEncryptionMode.Disable,
 		};
 		var where = $"{target.Host}:{target.Port}/{target.Database}";
 		try

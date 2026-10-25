@@ -48,7 +48,8 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 	private readonly DistributedReconciler _distributed = new(client, options, checks ?? new DependencyChecks(), logger);
 
 	public static readonly TimeSpan FirstRetry = TimeSpan.FromSeconds(10);
-	public static readonly TimeSpan LastRetry = TimeSpan.FromMinutes(5);
+	/// <summary>The resync puts every Chroma in the queue for a pass within a minute: a later retry would not hold.</summary>
+	public static readonly TimeSpan LastRetry = Resync.Period;
 
 	/// <summary>The passes that failed in a row, by UID of the server: the delay before the next one doubles with each.</summary>
 	private static readonly ConcurrentDictionary<string, int> Failures = new();
@@ -56,7 +57,7 @@ public sealed class ChromaController(IKubernetesClient client, OperatorOptions o
 	/// <summary>
 	/// A pass. One that fails for another reason than the server, like an answer 500 of the API or no answer at all, does not throw: an
 	/// exception would be retried by KubeOps a few times, then dropped, and the server would not be reconciled until its next change. It
-	/// comes back after 10 seconds, then 20, 40, up to 5 minutes, and the condition Reconciled says why, if the API takes the status.
+	/// comes back after 10 seconds, then 20, 40, then every minute, and the condition Reconciled says why, if the API takes the status.
 	/// </summary>
 	public async Task<ReconciliationResult<V1Alpha1Chroma>> ReconcileAsync(V1Alpha1Chroma server, CancellationToken cancellationToken)
 	{
