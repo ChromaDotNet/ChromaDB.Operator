@@ -53,6 +53,17 @@ internal static class Fixtures
 
 	public static V1Condition Condition(Outcome outcome, string type) => outcome.Status.Conditions.Single(c => c.Type == type);
 
+	/// <summary>A file of the repository, found from the directory of the tests up to ChromaDB.Operator.slnx.</summary>
+	public static string RepositoryFile(params string[] parts)
+	{
+		for (var directory = new DirectoryInfo(NUnit.Framework.TestContext.CurrentContext.TestDirectory); directory is not null; directory = directory.Parent)
+		{
+			if (File.Exists(Path.Combine(directory.FullName, "ChromaDB.Operator.slnx")))
+				return Path.Combine([directory.FullName, .. parts]);
+		}
+		throw new FileNotFoundException("ChromaDB.Operator.slnx not found above " + NUnit.Framework.TestContext.CurrentContext.TestDirectory);
+	}
+
 	/// <summary>A logger that keeps the ids of the events it gets.</summary>
 	public sealed class ListLogger<T> : ILogger<T>
 	{

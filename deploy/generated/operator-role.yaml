@@ -8,12 +8,13 @@ rules:
   nonResourceURLs: []
   resources:
   - configmaps
-  - persistentvolumeclaims
   - services
   verbs:
   - get
+  - list
   - create
   - update
+  - patch
 - apiGroups:
   - ""
   resources:
@@ -27,6 +28,15 @@ rules:
   - ""
   nonResourceURLs: []
   resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
   - pods
   verbs:
   - get
@@ -34,6 +44,45 @@ rules:
   - watch
   - create
   - update
+  - delete
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  nonResourceURLs: []
+  resources:
+  - serviceaccounts
+  verbs:
+  - get
+  - list
+  - create
+  - patch
+- apiGroups:
+  - apps
+  nonResourceURLs: []
+  resources:
+  - deployments
+  - statefulsets
+  verbs:
+  - get
+  - list
+  - create
+  - patch
+- apiGroups:
+  - batch
+  nonResourceURLs: []
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - create
+  - patch
   - delete
 - apiGroups:
   - chroma.chromadotnet.org
@@ -60,6 +109,30 @@ rules:
   - update
   - patch
 - apiGroups:
+  - chroma.cluster
+  nonResourceURLs: []
+  resources:
+  - memberlists
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  nonResourceURLs: []
+  resources:
+  - leases
+  verbs:
+  - get
+  - watch
+  - create
+  - update
+  - delete
+- apiGroups:
   - coordination.k8s.io
   resources:
   - leases
@@ -71,3 +144,14 @@ rules:
   - update
   - patch
   - delete
+- apiGroups:
+  - rbac.authorization.k8s.io
+  nonResourceURLs: []
+  resources:
+  - roles
+  - rolebindings
+  verbs:
+  - get
+  - list
+  - create
+  - patch

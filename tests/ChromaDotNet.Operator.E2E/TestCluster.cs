@@ -113,6 +113,66 @@ internal sealed class TestCluster : IDisposable
 		},
 	};
 
+	/// <summary>
+	/// A distributed Chroma on the dependencies of <see cref="CreateDistributedDependenciesAsync"/>: the bucket by the IP of the Service of
+	/// SeaweedFS, since the S3 client of the services of Chroma uses path style only with an IP.
+	/// </summary>
+	public static V1Alpha1Chroma NewDistributed(string name, string storageEndpoint) => new()
+	{
+		Metadata = new V1ObjectMeta { Name = name },
+		Spec = new V1Alpha1Chroma.ChromaSpec
+		{
+			Mode = V1Alpha1Chroma.ChromaSpec.DistributedMode,
+			Distributed = new V1Alpha1Chroma.DistributedSpec
+			{
+				Version = "52ce844",
+				Postgres = new V1Alpha1Chroma.PostgresSpec { Host = "postgres", CredentialsSecret = new() { Name = "chroma-postgres" } },
+				ObjectStorage = new V1Alpha1Chroma.ObjectStorageSpec
+				{
+					S3 = new V1Alpha1Chroma.S3Spec { Endpoint = storageEndpoint, CredentialsSecret = new() { Name = "chroma-storage" } },
+				},
+			},
+		},
+	};
+
+	/// <summary>
+	/// The objects of distributed-deps.yaml in the namespace of the test: Postgres, SeaweedFS, the Secrets, and the bucket. Returns the
+	/// endpoint of SeaweedFS by the IP of its Service, once the bucket exists and Postgres is ready.
+	/// </summary>
+	public async Task<string> CreateDistributedDependenciesAsync(bool bucket = true)
+	{
+		var file = Path.Combine(TestContext.CurrentContext.TestDirectory, "distributed-deps.yaml");
+		foreach (var o in KubernetesYaml.LoadAllFromString(await File.ReadAllTextAsync(file)))
+		{
+			switch (o)
+			{
+				case V1Secret s:
+					await Api.CoreV1.CreateNamespacedSecretAsync(s, Namespace);
+					break;
+				case V1Deployment d:
+					await Api.AppsV1.CreateNamespacedDeploymentAsync(d, Namespace);
+					break;
+				case V1Service s:
+					await Api.CoreV1.CreateNamespacedServiceAsync(s, Namespace);
+					break;
+				case V1Job j when bucket:
+					await Api.BatchV1.CreateNamespacedJobAsync(j, Namespace);
+					break;
+			}
+		}
+		var watch = Stopwatch.StartNew();
+		while ((await Api.AppsV1.ReadNamespacedDeploymentAsync("postgres", Namespace)).Status?.ReadyReplicas != 1
+			|| (bucket && (await Api.BatchV1.ReadNamespacedJobAsync("create-bucket", Namespace)).Status?.Succeeded != 1))
+		{
+			if (watch.Elapsed > ReadyTimeout)
+				Assert.Fail($"Postgres or the bucket not ready after {watch.Elapsed.TotalSeconds:0} s");
+			await Task.Delay(1000);
+		}
+		TestContext.Out.WriteLine($"dependencies ready after {watch.Elapsed.TotalSeconds:0.0} s");
+		var ip = (await Api.CoreV1.ReadNamespacedServiceAsync("seaweedfs", Namespace)).Spec.ClusterIP;
+		return $"http://{ip}:8333";
+	}
+
 	public async Task<V1Alpha1Chroma> CreateAsync(V1Alpha1Chroma server)
 	{
 		server.Metadata.NamespaceProperty = Namespace;
@@ -166,6 +226,23 @@ internal sealed class TestCluster : IDisposable
 		Assert.Fail($"{name}: {what ?? "condition"} not met in {watch.Elapsed.TotalSeconds:0} s; status {KubernetesJson.Serialize(server?.Status)}; " +
 			$"Pod {KubernetesJson.Serialize(pod?.Status)}; events:\n{string.Join('\n', events)}");
 		return null!;
+	}
+
+	/// <summary>Waits until the object exists, and returns it; fails after the timeout.</summary>
+	public async Task<T> WaitExistsAsync<T>(string name, TimeSpan timeout) where T : class, IKubernetesObject<V1ObjectMeta>
+	{
+		var watch = Stopwatch.StartNew();
+		while (true)
+		{
+			if (await Client.GetAsync<T>(name, Namespace) is { } found)
+			{
+				TestContext.Out.WriteLine($"{typeof(T).Name} {name}: there after {watch.Elapsed.TotalSeconds:0.0} s");
+				return found;
+			}
+			if (watch.Elapsed > timeout)
+				Assert.Fail($"{typeof(T).Name} {name} not there after {watch.Elapsed.TotalSeconds:0} s; status of the Chroma: {KubernetesJson.Serialize((await Client.ListAsync<V1Alpha1Chroma>(Namespace)).FirstOrDefault()?.Status)}");
+			await Task.Delay(1000);
+		}
 	}
 
 	/// <summary>Waits until the object is gone; fails after two minutes.</summary>

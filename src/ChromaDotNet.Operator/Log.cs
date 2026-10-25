@@ -28,6 +28,18 @@ internal static partial class Log
 	[LoggerMessage(EventId = 7, Level = LogLevel.Warning, Message = "{Server}: deleted, but the operator could not remove it from the owners of its claim; it stays and the operator tries again in {Seconds} seconds: {Message}")]
 	public static partial void ClaimNotReleased(ILogger logger, Exception? exception, string server, double seconds, string message);
 
+	[LoggerMessage(EventId = 12, Level = LogLevel.Information, Message = "{Server}: created {Kind} {Name}.")]
+	public static partial void Created(ILogger logger, string server, string kind, string name);
+
+	[LoggerMessage(EventId = 13, Level = LogLevel.Information, Message = "{Server}: creating the migration Job {Job}.")]
+	public static partial void CreatingMigrationJob(ILogger logger, string server, string job);
+
+	[LoggerMessage(EventId = 14, Level = LogLevel.Warning, Message = "{Server}: deleting Pod {Pod} ({Reason}): {Message}")]
+	public static partial void Repairing(ILogger logger, string server, string pod, string reason, string message);
+
+	[LoggerMessage(EventId = 15, Level = LogLevel.Warning, Message = "{Server}: deleted, but its MemberLists in {Namespace} could not be deleted: delete them by hand if no distributed Chroma comes back there.")]
+	public static partial void MemberListsNotDeleted(ILogger logger, Exception exception, string server, string @namespace);
+
 	[LoggerMessage(EventId = 8, Level = LogLevel.Warning, Message = "{Server}: deleted with pvcDeletionPolicy Delete before a pass made it the owner of PersistentVolumeClaim {Pvc}: the claim stays, with the data. Delete it by hand if it is not needed.")]
 	public static partial void DeleteNotApplied(ILogger logger, string server, string pvc);
 }

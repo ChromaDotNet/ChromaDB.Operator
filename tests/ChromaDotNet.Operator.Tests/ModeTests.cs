@@ -12,12 +12,12 @@ namespace ChromaDotNet.Operator.Tests;
 
 /// <summary>
 /// One kind, Chroma, with the mode in the spec, as the operator of Milvus does: single-node by default, or distributed. The mode does
-/// not change after the creation. The distributed mode is in the schema, and the operator refuses it until it is implemented.
+/// not change after the creation, and each mode has its own fields.
 /// </summary>
 public class ModeTests
 {
 	private static readonly V1CustomResourceDefinition Crd = KubernetesYaml.LoadAllFromString(File.ReadAllText(ManifestPath()))
-		.OfType<V1CustomResourceDefinition>().Single();
+		.OfType<V1CustomResourceDefinition>().Single(c => c.Metadata.Name == "chromas.chroma.chromadotnet.org");
 
 	[Test]
 	public void KindIsChroma()
@@ -38,9 +38,20 @@ public class ModeTests
 		Assert.That(rule.Message, Does.Contain("spec.mode cannot change after creation"));
 	}
 
-	// Until the distributed mode is implemented, a Chroma that asks for it gets nothing, and the status says why.
+	// Each mode has its fields: storage for single-node, distributed for distributed, and none of single-node in distributed.
 	[Test]
-	public async Task DistributedIsRefusedForNow()
+	public void EachModeHasItsFields()
+	{
+		var rule = Crd.Spec.Versions.Single().Schema.OpenAPIV3Schema.XKubernetesValidations.Single(r => r.Rule.Contains("self.spec.mode", StringComparison.Ordinal));
+		Assert.That(rule.Rule, Does.Contain("has(self.spec.distributed) && !has(self.spec.storage) && !has(self.spec.image)"));
+		Assert.That(rule.Rule, Does.EndWith(": has(self.spec.storage) && !has(self.spec.distributed)"));
+		Assert.That(Crd.Spec.Versions.Single().Schema.OpenAPIV3Schema.Properties["spec"].Required ?? [], Has.No.Member("storage"));
+	}
+
+	// A distributed Chroma has its own pass: no Pod, no claim, and the default image of single-node is not written into its spec. Here
+	// the Secret of Postgres is missing, and the status says so.
+	[Test]
+	public async Task DistributedHasItsOwnPass()
 	{
 		using var client = Substitute.For<IKubernetesClient>();
 		V1Alpha1Chroma.ChromaStatus? written = null;
@@ -49,25 +60,14 @@ public class ModeTests
 			written = call.Arg<V1Alpha1Chroma>().Status;
 			return call.Arg<V1Alpha1Chroma>();
 		});
-		// Without an image too: the default image of the operator is not written into the spec of a distributed Chroma.
-		var chroma = NewChroma();
-		chroma.Spec.Image = null;
-		chroma.Spec.Mode = "distributed";
-		var result = await new ChromaController(client, Defaults, NullLogger<ChromaController>.Instance).ReconcileAsync(chroma, CancellationToken.None);
+		var chroma = ChartTests.LoadChroma("default");
+		await new ChromaController(client, Defaults, NullLogger<ChromaController>.Instance).ReconcileAsync(chroma, CancellationToken.None);
 		Assert.That(written?.Phase, Is.EqualTo("Failed"));
-		Assert.That(written!.Conditions.Single(c => c.Type == "Ready").Reason, Is.EqualTo("DistributedNotImplemented"));
-		Assert.That(result.RequeueAfter, Is.Null, "the mode does not change: no requeue");
+		Assert.That(written!.Conditions.Single(c => c.Type == "Ready").Reason, Is.EqualTo("SecretNotFound"));
+		Assert.That(chroma.Spec.Image, Is.Null);
 		Assert.That(client.ReceivedCalls().Select(c => c.GetMethodInfo().Name), Has.None.EqualTo(nameof(IKubernetesClient.CreateAsync)));
 		Assert.That(client.ReceivedCalls().Select(c => c.GetMethodInfo().Name), Has.None.EqualTo(nameof(IKubernetesClient.UpdateAsync)));
 	}
 
-	private static string ManifestPath()
-	{
-		for (var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory); directory is not null; directory = directory.Parent)
-		{
-			if (File.Exists(Path.Combine(directory.FullName, "ChromaDB.Operator.slnx")))
-				return Path.Combine(directory.FullName, "deploy", "chroma-operator.yaml");
-		}
-		throw new FileNotFoundException("ChromaDB.Operator.slnx not found above " + TestContext.CurrentContext.TestDirectory);
-	}
+	private static string ManifestPath() => RepositoryFile("deploy", "chroma-operator.yaml");
 }

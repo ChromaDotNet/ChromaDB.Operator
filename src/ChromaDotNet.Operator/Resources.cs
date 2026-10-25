@@ -96,8 +96,8 @@ internal static partial class Resources
 			Spec = new V1PersistentVolumeClaimSpec
 			{
 				AccessModes = ["ReadWriteOnce"],
-				Resources = new V1VolumeResourceRequirements { Requests = new Dictionary<string, ResourceQuantity> { ["storage"] = new(server.Spec.Storage.Size) } },
-				StorageClassName = string.IsNullOrEmpty(server.Spec.Storage.StorageClass) ? null : server.Spec.Storage.StorageClass,
+				Resources = new V1VolumeResourceRequirements { Requests = new Dictionary<string, ResourceQuantity> { ["storage"] = new(server.Spec.Storage!.Size) } },
+				StorageClassName = string.IsNullOrEmpty(server.Spec.Storage!.StorageClass) ? null : server.Spec.Storage.StorageClass,
 			},
 		}.Initialize();
 		return pvc;

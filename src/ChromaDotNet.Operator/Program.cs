@@ -1,4 +1,5 @@
 using ChromaDotNet.Operator;
+using ChromaDotNet.Operator.Distributed;
 using KubeOps.Abstractions.Builder;
 using KubeOps.Operator;
 using Microsoft.AspNetCore.Builder;
@@ -6,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.Services.AddSingleton(OperatorOptions.From(builder.Configuration));
+// The checks of the external Postgres and bucket of a distributed Chroma.
+builder.Services.AddSingleton<IDependencyChecks, DependencyChecks>();
 builder.Services
 	.AddKubernetesOperator(settings =>
 	{

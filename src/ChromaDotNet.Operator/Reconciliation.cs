@@ -289,24 +289,6 @@ internal static class Reconciliation
 		return slash > 0 && text![(slash + 1)..] == incident ? ChromaImage.Parse(text![..slash]) : null;
 	}
 
-	/// <summary>
-	/// The outcome for a Chroma in the distributed mode, which this version of the operator does not implement: nothing is created, and
-	/// no later pass changes that, since the mode does not change after the creation.
-	/// </summary>
-	public static Outcome DistributedNotImplemented(V1Alpha1Chroma server, DateTime now)
-	{
-		var old = server.Status ?? new V1Alpha1Chroma.ChromaStatus();
-		var status = new V1Alpha1Chroma.ChromaStatus
-		{
-			Phase = "Failed",
-			ObservedGeneration = server.Metadata.Generation,
-			Conditions = old.Conditions.Select(Copy).ToList(),
-		};
-		SetCondition(status, "Ready", false, "DistributedNotImplemented",
-			"The distributed mode is not implemented yet by this version of the operator: nothing is created.", now);
-		return new Outcome(PodAction.None, null, status, TimeSpan.Zero);
-	}
-
 	public static Outcome Conflict(V1Alpha1Chroma server, string message, DateTime now, string reason, V1Pod? pod, string? pvcDataVersion, OperatorOptions options, string? pvcDataVersionUnknownIncident = null)
 	{
 		var (status, _) = Observe(server, pod, pvcDataVersion, pvcDataVersionUnknownIncident, options, now);
@@ -355,7 +337,7 @@ internal static class Reconciliation
 		condition.Message = message;
 	}
 
-	private static V1Condition Copy(V1Condition c) => new()
+	internal static V1Condition Copy(V1Condition c) => new()
 	{
 		Type = c.Type,
 		Status = c.Status,
