@@ -1,6 +1,7 @@
 # ChromaDB.Operator
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ChromaDotNet/ChromaDB.Operator/badge)](https://scorecard.dev/viewer/?uri=github.com/ChromaDotNet/ChromaDB.Operator)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15903/badge)](https://www.bestpractices.dev/projects/15903)
 
 A Kubernetes operator for [Chroma](https://www.trychroma.com/) 1.x, single-node and distributed, and for
 [VecturaDB](https://github.com/VecturaDB/VecturaDB) single-node, written in .NET with
