@@ -183,6 +183,8 @@ public class ChromaTests
 	[TestCase("docker.io/chromadb/chroma:latest")]
 	[TestCase("docker.io/chromadb/chroma:1.5.10.dev313")]
 	[TestCase("docker.io/chromadb/chroma")]
+	[TestCase("ghcr.io/vecturadb/vecturadb:1.0.0-preview.3.post")]
+	[TestCase("ghcr.io/vecturadb/vecturadb:1.0.0.post1")]
 	public void ImageWithoutAnExactVersionIsRefusedByTheApi(string image)
 	{
 		var e = Assert.ThrowsAsync<HttpOperationException>(() => _cluster.CreateAsync(TestCluster.NewChroma("refused", image)));

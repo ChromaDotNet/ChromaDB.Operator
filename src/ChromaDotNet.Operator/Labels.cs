@@ -35,7 +35,7 @@ internal static class Labels
 	/// <summary>On the claim, the product of the data version: chroma or vecturadb; a claim without it is of Chroma.</summary>
 	public const string ClaimDataProduct = Group + "/data-product";
 
-	/// <summary>On the claim, once both products have opened the data, the highest version of each: chroma=1.5.9,vecturadb=1.0.0-preview.3.</summary>
+	/// <summary>On the claim, once both products have opened the data, the highest version of each: chroma=1.5.9,vecturadb=1.0.0-preview.3.post1.</summary>
 	public const string ClaimDataVersions = Group + "/data-versions";
 
 	/// <summary>On the claim, the code of the incident when an image without a version ran on the data.</summary>
