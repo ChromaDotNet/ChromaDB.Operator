@@ -4,6 +4,8 @@ A Kubernetes operator for [Chroma](https://www.trychroma.com/), written in .NET.
 kubectl apply -f https://github.com/ChromaDotNet/ChromaDB.Operator/releases/latest/download/chroma-operator.yaml
 ```
 
+**In 0.1.2.** The image runs on [.NET 10.0.14](https://github.com/dotnet/core/blob/main/release-notes/10.0/10.0.14/10.0.14.md), the out-of-band security update of 25 October 2026. The operator's code has not changed.
+
 **Single-node Chroma.** One resource `Chroma` gives a server with its PersistentVolumeClaim, its configuration and its Service.
 - The operator keeps the highest version of Chroma that has opened the data, and refuses an older image, since Chroma does not open data migrated by a newer version.
 - A claim is kept by default when the Chroma is deleted, with its data version.
