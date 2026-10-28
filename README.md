@@ -25,8 +25,8 @@ ChromaDotNet is an independent community project that provides .NET libraries an
 - A new image replaces the Pod. `status.dataVersion` is the highest version of Chroma that has run on the data. An older image is
   refused, because Chroma migrates the data at its start and an older version does not open it again. Version 1.0.0, for example,
   panics on data opened by 1.5.9.
-- The image needs an exact version tag, like `docker.io/chromadb/chroma:1.5.9`, or a preview of VecturaDB, like
-  `ghcr.io/vecturadb/vecturadb:1.0.0-preview.3`. The API refuses `latest`, `preview` and the development tags.
+- The image needs an exact version tag, like `docker.io/chromadb/chroma:1.5.9`, or a preview of VecturaDB or its post-release, like
+  `ghcr.io/vecturadb/vecturadb:1.0.0-preview.3.post1`. The API refuses `latest`, `preview` and the development tags.
 - A single-node Chroma can run VecturaDB, a fork of Chroma with the same API, on the same kind of resource and the same data. The
   data passes from Chroma to VecturaDB, and from a VecturaDB to a newer one, only along the passages the operator knows, each tried on
   a volume first: see [VecturaDB](#vecturadb).
@@ -228,7 +228,7 @@ Search API and collection fork to the single node of Chroma. Its image starts as
 
 ```yaml
 spec:
-  image: ghcr.io/vecturadb/vecturadb:1.0.0-preview.3
+  image: ghcr.io/vecturadb/vecturadb:1.0.0-preview.3.post1
   storage:
     size: 10Gi
 ```
@@ -240,7 +240,7 @@ VecturaDB. For a mirror, `spec.product` says it. An image of an unknown reposito
 
 **The data knows its product.** `status.dataProduct` and the annotation `chroma.chromadotnet.org/data-product` of the claim say which
 product opened the data last, and `dataVersion` is a version of it. The versions of two products are never compared: VecturaDB
-`1.0.0-preview.3` on data of Chroma `1.5.9` is not a downgrade. A claim without the annotation is of Chroma.
+`1.0.0-preview.3.post1` on data of Chroma `1.5.9` is not a downgrade. A claim without the annotation is of Chroma.
 
 **The passages.** From Chroma to VecturaDB, and from a VecturaDB to a newer VecturaDB, the operator allows only the passages of its
 table, each one tried first on a volume with real data. Everything else is refused, without deductions from the versions:
@@ -249,7 +249,10 @@ table, each one tried first on a volume with real data. Everything else is refus
 |---|---|---|
 | Chroma 1.5.9 | VecturaDB 1.0.0-preview.2 | A volume opened by Chroma 1.5.9 with 200 dense records, then by VecturaDB: the dense records intact, with the same ids and results; BM25 and sparse vectors written and searched. |
 | Chroma 1.5.9 | VecturaDB 1.0.0-preview.3 | The same trial, with the same outcome. |
+| Chroma 1.5.9 | VecturaDB 1.0.0-preview.3.post1 | The same trial, with the same outcome. |
 | VecturaDB 1.0.0-preview.2 | VecturaDB 1.0.0-preview.3 | A volume with dense records, BM25 and explicit sparse vectors written by VecturaDB 1.0.0-preview.2, also on data of Chroma 1.5.9, then opened by 1.0.0-preview.3: the records intact, the same search results, new records written and found. |
+| VecturaDB 1.0.0-preview.2 | VecturaDB 1.0.0-preview.3.post1 | The same trial, with the same outcome. |
+| VecturaDB 1.0.0-preview.3 | VecturaDB 1.0.0-preview.3.post1 | The same trial from 1.0.0-preview.3, with the same outcome. |
 
 A passage outside the table keeps the running Pod, and `UpgradeBlocked` says why: `ProductChangeNotKnown` from Chroma,
 `UpgradeNotKnown` within VecturaDB. A new release of VecturaDB enters the table after the trial of the passage from the one before.
