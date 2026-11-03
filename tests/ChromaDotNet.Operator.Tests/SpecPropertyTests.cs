@@ -17,13 +17,17 @@ public partial class SpecPropertyTests
 {
 	private static readonly Gen<int?> Previews = Gen.OneOf(Gen.Constant<int?>(null), Gen.Choose(0, 4).Select(n => (int?)n));
 
-	// Small parts, so that equal versions, and a preview next to its release, come up often.
+	private static readonly Gen<int?> Posts = Gen.OneOf(Gen.Constant<int?>(null), Gen.Choose(0, 3).Select(n => (int?)n));
+
+	// Small parts, so that equal versions, a preview next to its release, and a post-release next to its preview, come up often. A
+	// post-release is only of a preview.
 	private static readonly Gen<ImageVersion> Versions =
 		from major in Gen.Choose(0, 2)
 		from minor in Gen.Choose(0, 6)
 		from patch in Gen.Choose(0, 10)
 		from preview in Previews
-		select new ImageVersion(major, minor, patch, preview);
+		from post in Posts
+		select new ImageVersion(major, minor, patch, preview, preview is null ? null : post);
 
 	// The versions of the table of the passages, half of the time, so that its rows come up.
 	private static readonly Gen<ImageVersion> VersionsNearTheTable =
@@ -57,17 +61,19 @@ public partial class SpecPropertyTests
 		ImageVersion.Parse(text) is not { } version || ImageVersion.Parse(version.ToString()) == version;
 
 	[Property]
-	public bool VersionPrintsAndReadsBack(NonNegativeInt major, NonNegativeInt minor, NonNegativeInt patch, bool isPreview, NonNegativeInt preview)
+	public bool VersionPrintsAndReadsBack(NonNegativeInt major, NonNegativeInt minor, NonNegativeInt patch, bool isPreview, NonNegativeInt preview,
+		bool isPost, NonNegativeInt post)
 	{
-		var version = new ImageVersion(major.Get, minor.Get, patch.Get, isPreview ? preview.Get : null);
+		var version = new ImageVersion(major.Get, minor.Get, patch.Get, isPreview ? preview.Get : null, isPreview && isPost ? post.Get : null);
 		return ImageVersion.Parse(version.ToString()) == version;
 	}
 
-	// The order of SemVer 2.0 for these versions: major, minor and patch first, then a preview before its release, previews by number.
+	// The order of SemVer 2.0 for these versions: major, minor and patch first, then a preview before its release, previews by number,
+	// and a post-release after its preview, post-releases by number.
 	[Property]
 	public Property VersionsSortAsInSemVer() =>
 		Prop.ForAll(Versions.ListOf().ToArbitrary(), versions =>
-			versions.Order().SequenceEqual(versions.OrderBy(v => (v.Major, v.Minor, v.Patch, v.Preview ?? long.MaxValue))));
+			versions.Order().SequenceEqual(versions.OrderBy(v => (v.Major, v.Minor, v.Patch, v.Preview ?? long.MaxValue, v.Post ?? -1))));
 
 	// An image with an exact version, with or without a digest, on any repository, mirrors with a port included, is valid, and its
 	// version is that version.
@@ -80,7 +86,8 @@ public partial class SpecPropertyTests
 			 select (Image: $"{repository}:{version}{digest}", Version: version)).ToArbitrary(),
 			t => ChromaImage.IsValid(t.Image) && ChromaImage.VersionOf(t.Image) == t.Version);
 
-	// A tag that is not an exact version is refused: an architecture, a development build, a release candidate, latest, a bare preview.
+	// A tag that is not an exact version is refused: an architecture, a development build, a release candidate, latest, a bare preview,
+	// a post-release of a release or without its number.
 	[Property]
 	public Property TagThatIsNotAnExactVersionIsRefused() =>
 		Prop.ForAll(
@@ -90,7 +97,7 @@ public partial class SpecPropertyTests
 				from suffix in Gen.Elements("-arm64", ".dev313", "-rc.1", "-preview", "rc", ".1")
 				select $"{repository}:{version}{suffix}",
 				from repository in Repositories
-				from tag in Gen.Elements("latest", "preview", "1.5", "1", "")
+				from tag in Gen.Elements("latest", "preview", "1.5", "1", "", "1.5.9.post1", "1.0.0-post1", "1.0.0-preview.3.post", "1.0.0-preview.3-post1")
 				select $"{repository}:{tag}",
 				from version in Versions
 				select version.ToString()).ToArbitrary(),
