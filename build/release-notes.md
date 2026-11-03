@@ -4,7 +4,7 @@ A Kubernetes operator for [Chroma](https://www.trychroma.com/), written in .NET.
 kubectl apply -f https://github.com/ChromaDotNet/ChromaDB.Operator/releases/latest/download/chroma-operator.yaml
 ```
 
-**In 0.1.2.** The image runs on [.NET 10.0.14](https://github.com/dotnet/core/blob/main/release-notes/10.0/10.0.14/10.0.14.md), the out-of-band security update of 25 October 2026. The operator's code has not changed.
+**In 0.1.3.** The operator updates to [VecturaDB 1.0.0-preview.5](https://github.com/VecturaDB/VecturaDB/releases/tag/v1.0.0-preview.5), the latest, and accepts the post-releases of its previews, like [1.0.0-preview.3.post1](https://github.com/VecturaDB/VecturaDB/releases/tag/v1.0.0-preview.3.post1). Its table has eight new passages, each tried on a volume first: to 1.0.0-preview.5 from Chroma 1.5.9 and from VecturaDB 1.0.0-preview.2, 1.0.0-preview.3, 1.0.0-preview.3.post1 and 1.0.0-preview.4; to 1.0.0-preview.3.post1 from Chroma 1.5.9 and from VecturaDB 1.0.0-preview.2 and 1.0.0-preview.3.
 
 **Single-node Chroma.** One resource `Chroma` gives a server with its PersistentVolumeClaim, its configuration and its Service.
 - The operator keeps the highest version of Chroma that has opened the data, and refuses an older image, since Chroma does not open data migrated by a newer version.
