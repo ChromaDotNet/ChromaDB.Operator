@@ -262,10 +262,16 @@ table, each one tried first on a volume with real data. Everything else is refus
 A passage outside the table keeps the running Pod, and `UpgradeBlocked` says why: `ProductChangeNotKnown` from Chroma,
 `UpgradeNotKnown` within VecturaDB. A new release of VecturaDB enters the table after the trial of the passage from the one before.
 
-**Back to Chroma.** Chroma 1.5.9 opens data of VecturaDB and reads its records, documents and metadata, but not the sparse vectors,
+**Back to Chroma.** Chroma 1.5.9 opens data of VecturaDB and reads the records, documents and metadata of its HNSW collections, but not the sparse vectors,
 which stay in the data. Writing with Chroma to collections with BM25 fails with the Python client, and other clients write records
-without their BM25 vectors, or leave the old ones on the documents they change. The [guide of VecturaDB](https://vecturadb.org/leaving-chroma-cloud/to-vecturadb.html) has what was
-measured, and the remedy; its advice is not to write with Chroma to data of VecturaDB that uses sparse vectors or BM25.
+without their BM25 vectors, or leave the old ones on the documents they change, until those documents are written again with VecturaDB.
+Do not write with Chroma to data of VecturaDB that uses sparse vectors or BM25.
+
+Chroma 1.5.9 cannot read a SPANN collection. On a data path written by VecturaDB, Chroma 1.5.9 lists it, but `count`, `get` and `query`
+fail with `Collection is missing HNSW configuration`. An add to a SPANN collection on Chroma 1.5.9 answers
+`Error in compaction: Error constructing hnsw segment reader: Error creating hnsw segment reader: Collection is missing HNSW configuration`,
+yet the record is written: VecturaDB shows it once it opens the data path again. The HNSW collections stay readable, and VecturaDB reads
+every collection again afterwards. The collections copied from Chroma Cloud are SPANN collections: see [Going back to Chroma 1.5.9](https://vecturadb.org/migrate-from-chroma-cloud/#going-back-to-chroma-159).
 
 The passage is refused (`ProductChange`) without the annotation `chroma.chromadotnet.org/allow-product-change: "true"`. With it,
 and while Chroma runs on the data, `UpgradeBlocked` stays `False` with the reason `ProductChangeAllowed` and the same explanation.
