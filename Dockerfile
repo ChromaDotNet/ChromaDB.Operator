@@ -1,7 +1,7 @@
 # The image of the operator: built with the .NET 10 SDK, run on the chiseled ASP.NET Core runtime (the probes answer over HTTP), which
 # has no shell and runs as a non-root user.
 # The SDK runs on the machine of the build and publishes for the platform of the image, so that amd64 and arm64 build without emulation.
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0@sha256:212fe4cb74627d5adf9817a4088906ae3edff1bd853bb27565d4b46731efe61e AS build
 ARG TARGETARCH
 WORKDIR /src
 COPY Directory.Build.props ./
