@@ -395,7 +395,7 @@ and the current context of the machine is never used. The scripts and the tests 
 `build/e2e.sh` installs [Kyverno](https://kyverno.io/) 1.15 on the cluster once, for the test of a mutating webhook:
 
 ```
-k3d cluster create chroma-op --kubeconfig-switch-context=false
+k3d cluster create chroma-op --kubeconfig-update-default=false --kubeconfig-switch-context=false
 k3d kubeconfig get chroma-op > <dir>/kubeconfig
 CHROMA_OPERATOR_KUBECONFIG=<dir>/kubeconfig CHROMA_OPERATOR_CONTEXT=k3d-chroma-op bash build/e2e.sh
 ```

@@ -6,7 +6,8 @@
 # The cluster is CHROMA_OPERATOR_CLUSTER (default chroma-op), its kubeconfig CHROMA_OPERATOR_KUBECONFIG, its context
 # CHROMA_OPERATOR_CONTEXT (default k3d-<cluster>, and nothing else). Every kubectl gets them explicitly: the current context of the
 # machine is never used.
-# A new cluster: k3d cluster create <name> --kubeconfig-switch-context=false, then k3d kubeconfig get <name> > <kubeconfig>.
+# A new cluster: k3d cluster create <name> --kubeconfig-update-default=false --kubeconfig-switch-context=false, so that k3d
+# leaves the kubeconfig of the machine alone, then k3d kubeconfig get <name> > <kubeconfig>.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cluster=${CHROMA_OPERATOR_CLUSTER:-chroma-op}
