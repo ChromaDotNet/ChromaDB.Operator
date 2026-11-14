@@ -1220,6 +1220,10 @@ spec:
                                 type: array
                             type: object
                         type: object
+                      allowReset:
+                        description: 'Whether the frontend accepts reset, which deletes all the data of the Chroma: false by default. true sets CHROMA_ALLOW_RESET, as values.dev.yaml of the chart does for the tests of Chroma, and anyone who reaches the frontend can then delete all the data. The condition ResetAllowed says so.'
+                        nullable: true
+                        type: boolean
                       nodeSelector:
                         additionalProperties:
                           type: string

@@ -21,6 +21,7 @@ public class ChartTests
 {
 	[TestCase("default")]
 	[TestCase("custom")]
+	[TestCase("reset")]
 	[TestCase("previous")]
 	public void ObjectsAreThoseOfTheChart(string name)
 	{

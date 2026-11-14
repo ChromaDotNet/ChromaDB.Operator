@@ -329,6 +329,7 @@ Clients connect to `http://rust-frontend-service.<namespace>.svc:8000`, which is
 | `postgres.host`, `port`, `database`, `sslMode`, `credentialsSecret` | The Postgres of the sysdb: port 5432, database `sysdb` and `sslMode` `disable` by default. |
 | `objectStorage.s3.endpoint`, `bucket`, `region`, `credentialsSecret` | The bucket: `chroma-storage` in `us-east-1` by default. |
 | `frontend`, `sysdb`, `logService`, `queryService`, `compactionService`, `garbageCollector`, `workQueue`, `fnConsumer` | Per component, what the values of the chart let change: `replicas` (frontend, log, query, compaction), `resources` (cpu and memory, merged over those of the chart), `nodeSelector`, `tolerations`, `affinity`. The API refuses a field the chart does not have for that component. |
+| `frontend.allowReset` | Whether the frontend accepts `reset`, which deletes all the data: `false` by default. `true` sets `CHROMA_ALLOW_RESET` on the frontend, as `values.dev.yaml` of the chart does for the tests of Chroma, and anyone who reaches the frontend can then delete all the data. The condition `ResetAllowed` says which. |
 
 **How it starts and updates.**
 1. The Job `sysdb-migration-<version>` migrates Postgres, and nothing else starts until it completes. The Jobs of earlier versions go
@@ -345,7 +346,8 @@ Clients connect to `http://rust-frontend-service.<namespace>.svc:8000`, which is
   ready Pods for 180 seconds, with the sysdb ready as long, restarts the sysdb (`SysdbLeaderLost`).
 
 **Status.** `phase` is `Creating`, `Migrating`, `Ready`, `Updating` or `Failed`. `components` has, for each component, its replicas,
-the ready ones and the members of its MemberList. `version` is the version that runs on all the components.
+the ready ones and the members of its MemberList. `version` is the version that runs on all the components. The condition
+`ResetAllowed` is `True` (`AllowReset`) when `frontend.allowReset` is `true`, and `False` (`ResetRefused`) otherwise.
 
 **Differences from the chart**, and only these:
 - the MemberLists have `members: []` instead of null;
@@ -355,7 +357,8 @@ the ready ones and the members of its MemberList. `version` is the version that 
 - the Chroma is the controller of every object, and the operator labels them with `chroma.chromadotnet.org/chroma`. The sysdb
   rewrites the MemberLists without their labels and owner, so the operator deletes them when the Chroma is deleted. If the operator
   is not running at that moment, the MemberLists stay: `kubectl -n <namespace> delete memberlists --all`;
-- `values.dev.yaml` sets `CHROMA_ALLOW_RESET`, which lets anyone who reaches the frontend delete all the data: the operator does not.
+- `values.dev.yaml` sets `CHROMA_ALLOW_RESET`, which lets anyone who reaches the frontend delete all the data: the operator sets it
+  only with `frontend.allowReset: true`.
 
 ## Security considerations
 

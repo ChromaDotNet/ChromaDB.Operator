@@ -111,7 +111,7 @@ public sealed partial class V1Alpha1Chroma
 
 		[Description("rust-frontend-service, the HTTP API on port 8000. The chart has no affinity for it.")]
 		[ValidationRule("!has(self.affinity)", message: "The chart has no affinity for the frontend.")]
-		public ComponentSpec? Frontend { get; set; }
+		public FrontendSpec? Frontend { get; set; }
 
 		[Description("The sysdb, which keeps the catalog in Postgres and the MemberLists of the other components, with one replica. The chart has no affinity for it.")]
 		[ValidationRule("!has(self.affinity) && !has(self.replicas)", message: "The chart has no affinity for the sysdb, and the operator runs one replica of it.")]
@@ -198,7 +198,7 @@ public sealed partial class V1Alpha1Chroma
 	}
 
 	/// <summary>A component of the chart: what its values let change. A field left out keeps the value of the chart.</summary>
-	public sealed class ComponentSpec
+	public class ComponentSpec
 	{
 		[RangeMinimum(0)]
 		[Description("The replicas.")]
@@ -215,6 +215,13 @@ public sealed partial class V1Alpha1Chroma
 
 		[Description("Affinity of the Pods.")]
 		public V1Affinity? Affinity { get; set; }
+	}
+
+	/// <summary>The frontend: a component, and the switch of reset, which values.dev.yaml of the chart turns on.</summary>
+	public sealed class FrontendSpec : ComponentSpec
+	{
+		[Description("Whether the frontend accepts reset, which deletes all the data of the Chroma: false by default. true sets CHROMA_ALLOW_RESET, as values.dev.yaml of the chart does for the tests of Chroma, and anyone who reaches the frontend can then delete all the data. The condition ResetAllowed says so.")]
+		public bool? AllowReset { get; set; }
 	}
 
 	public sealed class ComponentResources

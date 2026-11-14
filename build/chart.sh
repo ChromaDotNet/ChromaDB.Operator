@@ -212,6 +212,9 @@ render default chroma docker.io/chromadb chroma-storage http://minio.chroma.svc.
   postgres 5432 sysdb disable chroma-postgres chroma-storage
 render custom team-a registry.example.com/mirror vectors '' eu-west-1 \
   pg.databases.svc.cluster.local 6432 chroma_sysdb require team-a-pg team-a-s3
+# The frontend that accepts reset (spec.distributed.frontend.allowReset): the parameters of default.
+render reset chroma docker.io/chromadb chroma-storage http://minio.chroma.svc.cluster.local:9000 us-east-1 \
+  postgres 5432 sysdb disable chroma-postgres chroma-storage
 # The version before, from which the trials update: the parameters of default.
 use ${versions[1]}
 render previous chroma docker.io/chromadb chroma-storage http://minio.chroma.svc.cluster.local:9000 us-east-1 \
