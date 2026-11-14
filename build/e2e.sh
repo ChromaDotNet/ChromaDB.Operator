@@ -6,7 +6,8 @@
 # The cluster is CHROMA_OPERATOR_CLUSTER (default chroma-op), its kubeconfig CHROMA_OPERATOR_KUBECONFIG, its context
 # CHROMA_OPERATOR_CONTEXT (default k3d-<cluster>, and nothing else). Every kubectl gets them explicitly: the current context of the
 # machine is never used.
-# A new cluster: k3d cluster create <name> --kubeconfig-switch-context=false, then k3d kubeconfig get <name> > <kubeconfig>.
+# A new cluster: k3d cluster create <name> --kubeconfig-update-default=false --kubeconfig-switch-context=false, so that k3d
+# leaves the kubeconfig of the machine alone, then k3d kubeconfig get <name> > <kubeconfig>.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cluster=${CHROMA_OPERATOR_CLUSTER:-chroma-op}
@@ -23,7 +24,7 @@ bash build/k.sh get namespace default -o name >/dev/null
 k() { "$CHROMA_OPERATOR_KUBECTL" --kubeconfig "$CHROMA_OPERATOR_KUBECONFIG" --context "$CHROMA_OPERATOR_CONTEXT" "$@"; }
 
 docker build -q -t ghcr.io/chromadotnet/chroma-operator:dev . >/dev/null
-images="chromadb/chroma:1.5.3 chromadb/chroma:1.5.9 ghcr.io/vecturadb/vecturadb:1.0.0-preview.4 ghcr.io/vecturadb/vecturadb:1.0.0-preview.5"
+images="chromadb/chroma:1.5.3 chromadb/chroma:1.5.9 ghcr.io/vecturadb/vecturadb:1.0.0-preview.4 ghcr.io/vecturadb/vecturadb:1.0.0-preview.5 ghcr.io/vecturadb/vecturadb:1.0.0-preview.9"
 for image in $images; do docker image inspect "$image" >/dev/null 2>&1 || docker pull -q "$image" >/dev/null; done
 MSYS_NO_PATHCONV=1 k3d image import -c "$cluster" ghcr.io/chromadotnet/chroma-operator:dev $images >/dev/null
 

@@ -113,6 +113,11 @@ internal sealed partial class DistributedReconciler(IKubernetesClient client, Op
 			return await WriteStatusAsync(chroma, status, SteadyRequeue, cancellationToken);
 		}
 		Reconciliation.SetCondition(status, "UpgradeBlocked", false, "VersionAllowed", "", now);
+		if (DistributedResources.AllowsReset(chroma))
+			Reconciliation.SetCondition(status, "ResetAllowed", true, "AllowReset",
+				"spec.distributed.frontend.allowReset is true: the frontend accepts reset, and anyone who reaches it can delete all the data of this Chroma.", now);
+		else
+			Reconciliation.SetCondition(status, "ResetAllowed", false, "ResetRefused", "", now);
 
 		// The checks run from the operator: before the migration of the version they stop the pass; after it, a failure is in the
 		// status and the pass goes on, since the components reach Postgres and the bucket on their own, and the repairs must run.

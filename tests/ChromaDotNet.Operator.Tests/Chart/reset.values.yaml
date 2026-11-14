@@ -1,0 +1,8 @@
+# The value that reset.chroma.yaml sets, for build/chart.sh: the otherEnvConfig of the frontend of values.dev.yaml, with
+# CHROMA_ALLOW_RESET, in place of the one the operator derives without it.
+rustFrontendService:
+  otherEnvConfig: |
+    - name: CHROMA_ALLOW_RESET
+      value: "true"
+    - name: RUST_BACKTRACE
+      value: "1"

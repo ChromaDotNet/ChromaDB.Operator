@@ -526,6 +526,34 @@ public class DistributedTests
 		},
 	};
 
+	[Test]
+	public async Task ResetIsRefusedUnlessTheFrontendAllowsIt()
+	{
+		// Left out, reset stays refused: no CHROMA_ALLOW_RESET on the frontend, and the condition says so.
+		var chroma = NewDistributed();
+		Assert.That(FrontendEnv(chroma), Has.None.Matches<V1EnvVar>(e => e.Name == "CHROMA_ALLOW_RESET"));
+		await PassAsync(chroma);
+		Assert.That((Condition("ResetAllowed").Status, Condition("ResetAllowed").Reason), Is.EqualTo(("False", "ResetRefused")));
+
+		// allowReset: true sets it, as values.dev.yaml of the chart, between CONFIG_PATH and RUST_BACKTRACE.
+		chroma.Spec.Distributed!.Frontend = new V1Alpha1Chroma.FrontendSpec { AllowReset = true };
+		Assert.That(FrontendEnv(chroma).Select(e => (e.Name, e.Value)),
+			Is.EqualTo(new[] { ("CONFIG_PATH", "/config/config.yaml"), ("CHROMA_ALLOW_RESET", "true"), ("RUST_BACKTRACE", "1") }));
+		await PassAsync(chroma);
+		Assert.That((Condition("ResetAllowed").Status, Condition("ResetAllowed").Reason), Is.EqualTo(("True", "AllowReset")));
+		Assert.That(Condition("ResetAllowed").Message, Does.Contain("delete all the data"));
+
+		// Back to false, reset is refused again.
+		chroma.Spec.Distributed.Frontend.AllowReset = false;
+		Assert.That(FrontendEnv(chroma), Has.None.Matches<V1EnvVar>(e => e.Name == "CHROMA_ALLOW_RESET"));
+		await PassAsync(chroma);
+		Assert.That(Condition("ResetAllowed").Status, Is.EqualTo("False"));
+	}
+
+	private static IList<V1EnvVar> FrontendEnv(V1Alpha1Chroma chroma) =>
+		DistributedResources.All(chroma, DistributedVersion.Known[0]).OfType<V1Deployment>()
+			.Single(d => d.Name() == DistributedResources.Frontend).Spec.Template.Spec.Containers.Single().Env;
+
 	/// <summary>A distributed Chroma whose components are all ready.</summary>
 	private async Task<V1Alpha1Chroma> ReadyAsync(string version = Tag)
 	{

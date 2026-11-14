@@ -46,7 +46,7 @@ public sealed partial class V1Alpha1Chroma
 
 		/// <summary>The image of Chroma or VecturaDB with an exact version tag, like docker.io/chromadb/chroma:1.5.9; a digest can follow it.</summary>
 		[Pattern(ChromaImage.Pattern)]
-		[Description("The image of Chroma, or of VecturaDB, with an exact version tag, like docker.io/chromadb/chroma:1.5.9 or ghcr.io/vecturadb/vecturadb:1.0.0-preview.5, optionally followed by @sha256:<digest>. latest, preview and development tags are refused. Empty: the default image of the operator, written here at the first pass. It must be in the repositories the operator allows.")]
+		[Description("The image of Chroma, or of VecturaDB, with an exact version tag, like docker.io/chromadb/chroma:1.5.9 or ghcr.io/vecturadb/vecturadb:1.0.0-preview.9, optionally followed by @sha256:<digest>. latest, preview and development tags are refused. Empty: the default image of the operator, written here at the first pass. It must be in the repositories the operator allows.")]
 		public string? Image { get; set; }
 
 		[Pattern("^(chroma|vecturadb)$")]
@@ -111,7 +111,7 @@ public sealed partial class V1Alpha1Chroma
 
 		[Description("rust-frontend-service, the HTTP API on port 8000. The chart has no affinity for it.")]
 		[ValidationRule("!has(self.affinity)", message: "The chart has no affinity for the frontend.")]
-		public ComponentSpec? Frontend { get; set; }
+		public FrontendSpec? Frontend { get; set; }
 
 		[Description("The sysdb, which keeps the catalog in Postgres and the MemberLists of the other components, with one replica. The chart has no affinity for it.")]
 		[ValidationRule("!has(self.affinity) && !has(self.replicas)", message: "The chart has no affinity for the sysdb, and the operator runs one replica of it.")]
@@ -198,7 +198,7 @@ public sealed partial class V1Alpha1Chroma
 	}
 
 	/// <summary>A component of the chart: what its values let change. A field left out keeps the value of the chart.</summary>
-	public sealed class ComponentSpec
+	public class ComponentSpec
 	{
 		[RangeMinimum(0)]
 		[Description("The replicas.")]
@@ -215,6 +215,13 @@ public sealed partial class V1Alpha1Chroma
 
 		[Description("Affinity of the Pods.")]
 		public V1Affinity? Affinity { get; set; }
+	}
+
+	/// <summary>The frontend: a component, and the switch of reset, which values.dev.yaml of the chart turns on.</summary>
+	public sealed class FrontendSpec : ComponentSpec
+	{
+		[Description("Whether the frontend accepts reset, which deletes all the data of the Chroma: false by default. true sets CHROMA_ALLOW_RESET, as values.dev.yaml of the chart does for the tests of Chroma, and anyone who reaches the frontend can then delete all the data. The condition ResetAllowed says so.")]
+		public bool? AllowReset { get; set; }
 	}
 
 	public sealed class ComponentResources
@@ -304,7 +311,7 @@ public sealed partial class V1Alpha1Chroma
 		[Description("The product that opened the data last, chroma or vecturadb. The data passes from one product to the other only along the passages the operator knows.")]
 		public string? DataProduct { get; set; }
 
-		[Description("Once both products have opened the data, the highest version of each, like chroma: 1.5.9 and vecturadb: 1.0.0-preview.5. An image older than the one of its product is refused, also after the data passed to the other product.")]
+		[Description("Once both products have opened the data, the highest version of each, like chroma: 1.5.9 and vecturadb: 1.0.0-preview.9. An image older than the one of its product is refused, also after the data passed to the other product.")]
 		public IDictionary<string, string>? DataVersions { get; set; }
 
 		[Description("True when an image without a version ran on the data, so that its version is not known: no Pod is replaced or started until the annotation chroma.chromadotnet.org/declared-data-version says it.")]

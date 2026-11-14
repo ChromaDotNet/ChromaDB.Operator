@@ -26,7 +26,7 @@ ChromaDotNet is an independent community project that provides .NET libraries an
   refused, because Chroma migrates the data at its start and an older version does not open it again. Version 1.0.0, for example,
   panics on data opened by 1.5.9.
 - The image needs an exact version tag, like `docker.io/chromadb/chroma:1.5.9`, or a preview of VecturaDB or its post-release, like
-  `ghcr.io/vecturadb/vecturadb:1.0.0-preview.5` or `1.0.0-preview.3.post1`. The API refuses `latest`, `preview` and the development tags.
+  `ghcr.io/vecturadb/vecturadb:1.0.0-preview.9` or `1.0.0-preview.3.post1`. The API refuses `latest`, `preview` and the development tags.
 - A single-node Chroma can run VecturaDB, a fork of Chroma with the same API, on the same kind of resource and the same data. The
   data passes from Chroma to VecturaDB, and from a VecturaDB to a newer one, only along the passages the operator knows, each tried on
   a volume first: see [VecturaDB](#vecturadb).
@@ -228,7 +228,7 @@ Search API and collection fork to the single node of Chroma. Its image starts as
 
 ```yaml
 spec:
-  image: ghcr.io/vecturadb/vecturadb:1.0.0-preview.5
+  image: ghcr.io/vecturadb/vecturadb:1.0.0-preview.9
   storage:
     size: 10Gi
 ```
@@ -240,7 +240,7 @@ VecturaDB. For a mirror, `spec.product` says it. An image of an unknown reposito
 
 **The data knows its product.** `status.dataProduct` and the annotation `chroma.chromadotnet.org/data-product` of the claim say which
 product opened the data last, and `dataVersion` is a version of it. The versions of two products are never compared: VecturaDB
-`1.0.0-preview.5` on data of Chroma `1.5.9` is not a downgrade. A claim without the annotation is of Chroma.
+`1.0.0-preview.9` on data of Chroma `1.5.9` is not a downgrade. A claim without the annotation is of Chroma.
 
 **The passages.** From Chroma to VecturaDB, and from a VecturaDB to a newer VecturaDB, the operator allows only the passages of its
 table, each one tried first on a volume with real data. Everything else is refused, without deductions from the versions:
@@ -251,6 +251,7 @@ table, each one tried first on a volume with real data. Everything else is refus
 | Chroma 1.5.9 | VecturaDB 1.0.0-preview.3 | The same trial, with the same outcome. |
 | Chroma 1.5.9 | VecturaDB 1.0.0-preview.3.post1 | The same trial, with the same outcome. |
 | Chroma 1.5.9 | VecturaDB 1.0.0-preview.5 | The same trial, with the same outcome. |
+| Chroma 1.5.9 | VecturaDB 1.0.0-preview.9 | The same trial, on an Azure disk of AKS, with the same outcome; the three records at distance 0 of the query come in the order of their ids. |
 | VecturaDB 1.0.0-preview.2 | VecturaDB 1.0.0-preview.3 | A volume with dense records, BM25 and explicit sparse vectors written by VecturaDB 1.0.0-preview.2, also on data of Chroma 1.5.9, then opened by 1.0.0-preview.3: the records intact, the same search results, new records written and found. |
 | VecturaDB 1.0.0-preview.2 | VecturaDB 1.0.0-preview.3.post1 | The same trial, with the same outcome. |
 | VecturaDB 1.0.0-preview.3 | VecturaDB 1.0.0-preview.3.post1 | The same trial from 1.0.0-preview.3, with the same outcome. |
@@ -260,7 +261,8 @@ table, each one tried first on a volume with real data. Everything else is refus
 | VecturaDB 1.0.0-preview.4 | VecturaDB 1.0.0-preview.5 | The same trial, with the same outcome. |
 
 A passage outside the table keeps the running Pod, and `UpgradeBlocked` says why: `ProductChangeNotKnown` from Chroma,
-`UpgradeNotKnown` within VecturaDB. A new release of VecturaDB enters the table after the trial of the passage from the one before.
+`UpgradeNotKnown` within VecturaDB. The latest release of VecturaDB, 1.0.0-preview.9, enters the table with the passage from Chroma 1.5.9 only, after its trial: a release
+of VecturaDB before it does not pass to it.
 
 **Back to Chroma.** Chroma 1.5.9 opens data of VecturaDB and reads the records, documents and metadata of its HNSW collections, but not the sparse vectors,
 which stay in the data. Writing with Chroma to collections with BM25 fails with the Python client, and other clients write records
@@ -329,6 +331,7 @@ Clients connect to `http://rust-frontend-service.<namespace>.svc:8000`, which is
 | `postgres.host`, `port`, `database`, `sslMode`, `credentialsSecret` | The Postgres of the sysdb: port 5432, database `sysdb` and `sslMode` `disable` by default. |
 | `objectStorage.s3.endpoint`, `bucket`, `region`, `credentialsSecret` | The bucket: `chroma-storage` in `us-east-1` by default. |
 | `frontend`, `sysdb`, `logService`, `queryService`, `compactionService`, `garbageCollector`, `workQueue`, `fnConsumer` | Per component, what the values of the chart let change: `replicas` (frontend, log, query, compaction), `resources` (cpu and memory, merged over those of the chart), `nodeSelector`, `tolerations`, `affinity`. The API refuses a field the chart does not have for that component. |
+| `frontend.allowReset` | Whether the frontend accepts `reset`, which deletes all the data: `false` by default. `true` sets `CHROMA_ALLOW_RESET` on the frontend, as `values.dev.yaml` of the chart does for the tests of Chroma, and anyone who reaches the frontend can then delete all the data. The condition `ResetAllowed` says which. |
 
 **How it starts and updates.**
 1. The Job `sysdb-migration-<version>` migrates Postgres, and nothing else starts until it completes. The Jobs of earlier versions go
@@ -345,7 +348,8 @@ Clients connect to `http://rust-frontend-service.<namespace>.svc:8000`, which is
   ready Pods for 180 seconds, with the sysdb ready as long, restarts the sysdb (`SysdbLeaderLost`).
 
 **Status.** `phase` is `Creating`, `Migrating`, `Ready`, `Updating` or `Failed`. `components` has, for each component, its replicas,
-the ready ones and the members of its MemberList. `version` is the version that runs on all the components.
+the ready ones and the members of its MemberList. `version` is the version that runs on all the components. The condition
+`ResetAllowed` is `True` (`AllowReset`) when `frontend.allowReset` is `true`, and `False` (`ResetRefused`) otherwise.
 
 **Differences from the chart**, and only these:
 - the MemberLists have `members: []` instead of null;
@@ -355,7 +359,8 @@ the ready ones and the members of its MemberList. `version` is the version that 
 - the Chroma is the controller of every object, and the operator labels them with `chroma.chromadotnet.org/chroma`. The sysdb
   rewrites the MemberLists without their labels and owner, so the operator deletes them when the Chroma is deleted. If the operator
   is not running at that moment, the MemberLists stay: `kubectl -n <namespace> delete memberlists --all`;
-- `values.dev.yaml` sets `CHROMA_ALLOW_RESET`, which lets anyone who reaches the frontend delete all the data: the operator does not.
+- `values.dev.yaml` sets `CHROMA_ALLOW_RESET`, which lets anyone who reaches the frontend delete all the data: the operator sets it
+  only with `frontend.allowReset: true`.
 
 ## Security considerations
 
@@ -390,7 +395,7 @@ and the current context of the machine is never used. The scripts and the tests 
 `build/e2e.sh` installs [Kyverno](https://kyverno.io/) 1.15 on the cluster once, for the test of a mutating webhook:
 
 ```
-k3d cluster create chroma-op --kubeconfig-switch-context=false
+k3d cluster create chroma-op --kubeconfig-update-default=false --kubeconfig-switch-context=false
 k3d kubeconfig get chroma-op > <dir>/kubeconfig
 CHROMA_OPERATOR_KUBECONFIG=<dir>/kubeconfig CHROMA_OPERATOR_CONTEXT=k3d-chroma-op bash build/e2e.sh
 ```

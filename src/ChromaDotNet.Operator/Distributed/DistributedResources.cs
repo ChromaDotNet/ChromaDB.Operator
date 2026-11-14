@@ -18,7 +18,7 @@ namespace ChromaDotNet.Operator.Distributed;
 /// <item>the labels app.kubernetes.io/managed-by and chroma.chromadotnet.org/chroma on every object, not on the Pods.</item>
 /// </list>
 /// Values the operator does not take from values.dev.yaml: CHROMA_ALLOW_RESET, which lets anyone who reaches the frontend delete all
-/// the data, and the replicas of the components it runs with one.
+/// the data, unless spec.distributed.frontend.allowReset asks for it; and the replicas of the components it runs with one.
 /// </summary>
 internal static class DistributedResources
 {
@@ -139,6 +139,9 @@ internal static class DistributedResources
 	}
 
 	public static int Replicas(V1Alpha1Chroma chroma, string component) => ComponentOf(chroma, component)?.Replicas ?? ChartDefaults[component].Replicas;
+
+	/// <summary>Whether the frontend accepts reset: spec.distributed.frontend.allowReset, false when left out.</summary>
+	public static bool AllowsReset(V1Alpha1Chroma chroma) => Spec(chroma).Frontend?.AllowReset == true;
 
 	/// <summary>
 	/// What comes before the workloads: service accounts, roles and bindings, MemberLists, ConfigMaps and Services. A MemberList is only
@@ -293,7 +296,10 @@ internal static class DistributedResources
 			ReadinessProbe = new V1Probe { PeriodSeconds = 1, FailureThreshold = 30, HttpGet = new V1HTTPGetAction { Port = FrontendPort, Path = "/api/v2/healthcheck" } },
 			Ports = [new V1ContainerPort { ContainerPort = FrontendPort }],
 			Resources = Resources(chroma, Frontend),
-			Env = [Value("CONFIG_PATH", "/config/config.yaml"), Value("RUST_BACKTRACE", "1")],
+			// The order of the chart: CONFIG_PATH, then otherEnvConfig, which values.dev.yaml starts with CHROMA_ALLOW_RESET.
+			Env = AllowsReset(chroma)
+				? [Value("CONFIG_PATH", "/config/config.yaml"), Value("CHROMA_ALLOW_RESET", "true"), Value("RUST_BACKTRACE", "1")]
+				: [Value("CONFIG_PATH", "/config/config.yaml"), Value("RUST_BACKTRACE", "1")],
 			VolumeMounts = [new V1VolumeMount { Name = "rust-frontend-service-config", MountPath = "/config/" }],
 		}, [ConfigVolume("rust-frontend-service-config")], placement, affinity: false, spread: false);
 	}

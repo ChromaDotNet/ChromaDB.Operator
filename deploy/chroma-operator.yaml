@@ -1236,6 +1236,15 @@ spec:
                                 type: array
                             type: object
                         type: object
+                      allowReset:
+                        description: 'Whether the frontend accepts reset, which deletes
+                          all the data of the Chroma: false by default. true sets
+                          CHROMA_ALLOW_RESET, as values.dev.yaml of the chart does
+                          for the tests of Chroma, and anyone who reaches the frontend
+                          can then delete all the data. The condition ResetAllowed
+                          says so.'
+                        nullable: true
+                        type: boolean
                       nodeSelector:
                         additionalProperties:
                           type: string
@@ -3467,7 +3476,7 @@ spec:
                 type: object
               image:
                 description: 'The image of Chroma, or of VecturaDB, with an exact
-                  version tag, like docker.io/chromadb/chroma:1.5.9 or ghcr.io/vecturadb/vecturadb:1.0.0-preview.5,
+                  version tag, like docker.io/chromadb/chroma:1.5.9 or ghcr.io/vecturadb/vecturadb:1.0.0-preview.9,
                   optionally followed by @sha256:<digest>. latest, preview and development
                   tags are refused. Empty: the default image of the operator, written
                   here at the first pass. It must be in the repositories the operator
@@ -3677,7 +3686,7 @@ spec:
                 additionalProperties:
                   type: string
                 description: 'Once both products have opened the data, the highest
-                  version of each, like chroma: 1.5.9 and vecturadb: 1.0.0-preview.5.
+                  version of each, like chroma: 1.5.9 and vecturadb: 1.0.0-preview.9.
                   An image older than the one of its product is refused, also after
                   the data passed to the other product.'
                 nullable: true

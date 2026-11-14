@@ -116,6 +116,10 @@ internal static class Passages
 			"03/11/2026, k3d, a local-path volume opened by Chroma 1.5.9 with 200 dense records, then by VecturaDB 1.0.0-preview.5: the dense " +
 			"records intact, with the same ids and results; BM25 and sparse vectors written and searched; two runs with the same outcome, the " +
 			"same as with 1.0.0-preview.3.post1."),
+		new(Products.Chroma, "1.5.9", Products.VecturaDB, "1.0.0-preview.9",
+			"14/11/2026, AKS, an Azure disk opened by Chroma 1.5.9 with 200 dense records, then by VecturaDB 1.0.0-preview.9: the dense records " +
+			"intact, with the same ids and results, the three records at distance 0 of the query in the order of their ids; BM25 and sparse " +
+			"vectors written and searched; two runs with the same outcome."),
 		new(Products.VecturaDB, "1.0.0-preview.2", Products.VecturaDB, "1.0.0-preview.3",
 			"25/10/2026, k3d, a local-path volume with 200 dense records, a BM25 collection and explicit sparse vectors written by VecturaDB " +
 			"1.0.0-preview.2, also on data of Chroma 1.5.9, then opened by VecturaDB 1.0.0-preview.3: the records intact, the BM25 and sparse " +
@@ -147,14 +151,17 @@ internal static class Passages
 	];
 
 	/// <summary>
-	/// What a passage to Chroma does to data opened by VecturaDB, as measured with Chroma 1.5.9 and as the guide of VecturaDB says: the
-	/// records stay, the sparse vectors too, but Chroma does not read them, and its writes leave records without their BM25 vectors.
+	/// What a passage to Chroma does to data opened by VecturaDB, as measured with Chroma 1.5.9 and as the README and the guide of VecturaDB
+	/// say: the records of the HNSW collections stay readable, the sparse vectors stay but Chroma does not read them, its writes leave
+	/// records without their BM25 vectors, and it cannot read a SPANN collection.
 	/// </summary>
 	public const string ToChromaEffect =
-		"Chroma reads the records, documents and metadata, but not the sparse vectors, which stay in the data, and sparse, BM25 and Search queries fail. " +
-		"Writes from Chroma to collections with BM25 fail with the Python client, and other clients write records without their BM25 vectors, or keep " +
-		"the old ones, until their documents are written again with VecturaDB. Do not write with Chroma to data of VecturaDB that uses sparse vectors " +
-		"or BM25: https://vecturadb.org/leaving-chroma-cloud/to-vecturadb.html";
+		"Chroma reads the records, documents and metadata of the HNSW collections, but not the sparse vectors, which stay in the data, and sparse, BM25 " +
+		"and Search queries fail. Writes from Chroma to collections with BM25 fail with the Python client, and other clients write records without their " +
+		"BM25 vectors, or keep the old ones, until their documents are written again with VecturaDB. Do not write with Chroma to data of VecturaDB that " +
+		"uses sparse vectors or BM25. Chroma cannot read a SPANN collection: it lists it, but count, get and query fail with Collection is missing HNSW " +
+		"configuration, and an add answers an error yet writes the record. VecturaDB reads every collection again once it opens the data: " +
+		"https://vecturadb.org/migrate-from-chroma-cloud/#going-back-to-chroma-159";
 
 	/// <param name="image">The image, for the messages.</param>
 	public static PassageCheck Check(DataState data, string product, ImageVersion version, string image, Flags flags)
