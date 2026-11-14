@@ -175,11 +175,13 @@ public class VecturaTests
 		var outcome = Decide(server, RunningPod(server, Vectura1));
 		var blocked = Condition(outcome, "UpgradeBlocked");
 		Assert.That(blocked.Reason, Is.EqualTo("ProductChange"));
-		Assert.That(blocked.Message, Does.StartWith("The data was last opened by VecturaDB 1.0.0-preview.3. Chroma reads the records, documents and metadata, " +
-			"but not the sparse vectors, which stay in the data, and sparse, BM25 and Search queries fail. Writes from Chroma to collections with BM25 fail " +
-			"with the Python client, and other clients write records without their BM25 vectors, or keep the old ones, until their documents are written " +
-			"again with VecturaDB. Do not write with Chroma to data of VecturaDB that uses sparse vectors or BM25: " +
-			"https://vecturadb.org/leaving-chroma-cloud/to-vecturadb.html To switch anyway, annotate the Chroma with chroma.chromadotnet.org/allow-product-change: \"true\"."));
+		Assert.That(blocked.Message, Does.StartWith("The data was last opened by VecturaDB 1.0.0-preview.3. Chroma reads the records, documents and metadata " +
+			"of the HNSW collections, but not the sparse vectors, which stay in the data, and sparse, BM25 and Search queries fail. Writes from Chroma to " +
+			"collections with BM25 fail with the Python client, and other clients write records without their BM25 vectors, or keep the old ones, until " +
+			"their documents are written again with VecturaDB. Do not write with Chroma to data of VecturaDB that uses sparse vectors or BM25. Chroma cannot " +
+			"read a SPANN collection: it lists it, but count, get and query fail with Collection is missing HNSW configuration, and an add answers an error " +
+			"yet writes the record. VecturaDB reads every collection again once it opens the data: " +
+			"https://vecturadb.org/migrate-from-chroma-cloud/#going-back-to-chroma-159 To switch anyway, annotate the Chroma with chroma.chromadotnet.org/allow-product-change: \"true\"."));
 		Assert.That(blocked.Message, Does.Not.Contain("loss").IgnoreCase.And.Not.Contain("lost").IgnoreCase);
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None));
 	}
