@@ -26,7 +26,7 @@ ChromaDotNet is an independent community project that provides .NET libraries an
   refused, because Chroma migrates the data at its start and an older version does not open it again. Version 1.0.0, for example,
   panics on data opened by 1.5.9.
 - The image needs an exact version tag, like `docker.io/chromadb/chroma:1.5.9`, or a preview of VecturaDB or its post-release, like
-  `ghcr.io/vecturadb/vecturadb:1.0.0-preview.9` or `1.0.0-preview.3.post1`. The API refuses `latest`, `preview` and the development tags.
+  `ghcr.io/vecturadb/vecturadb:1.0.0-preview.10.post1` or `1.0.0-preview.3.post1`. The API refuses `latest`, `preview` and the development tags.
 - A single-node Chroma can run VecturaDB, a fork of Chroma with the same API, on the same kind of resource and the same data. The
   data passes from Chroma to VecturaDB, and from a VecturaDB to a newer one, only along the passages the operator knows, each tried on
   a volume first: see [VecturaDB](#vecturadb).
@@ -228,7 +228,7 @@ Search API and collection fork to the single node of Chroma. Its image starts as
 
 ```yaml
 spec:
-  image: ghcr.io/vecturadb/vecturadb:1.0.0-preview.9
+  image: ghcr.io/vecturadb/vecturadb:1.0.0-preview.10.post1
   storage:
     size: 10Gi
 ```
@@ -240,7 +240,7 @@ VecturaDB. For a mirror, `spec.product` says it. An image of an unknown reposito
 
 **The data knows its product.** `status.dataProduct` and the annotation `chroma.chromadotnet.org/data-product` of the claim say which
 product opened the data last, and `dataVersion` is a version of it. The versions of two products are never compared: VecturaDB
-`1.0.0-preview.9` on data of Chroma `1.5.9` is not a downgrade. A claim without the annotation is of Chroma.
+`1.0.0-preview.10.post1` on data of Chroma `1.5.9` is not a downgrade. A claim without the annotation is of Chroma.
 
 **The passages.** From Chroma to VecturaDB, and from a VecturaDB to a newer VecturaDB, the operator allows only the passages of its
 table, each one tried first on a volume with real data. Everything else is refused, without deductions from the versions:
@@ -252,6 +252,7 @@ table, each one tried first on a volume with real data. Everything else is refus
 | Chroma 1.5.9 | VecturaDB 1.0.0-preview.3.post1 | The same trial, with the same outcome. |
 | Chroma 1.5.9 | VecturaDB 1.0.0-preview.5 | The same trial, with the same outcome. |
 | Chroma 1.5.9 | VecturaDB 1.0.0-preview.9 | The same trial, on an Azure disk of AKS, with the same outcome; the three records at distance 0 of the query come in the order of their ids. |
+| Chroma 1.5.9 | VecturaDB 1.0.0-preview.10.post1 | The same trial, on a local-path volume of k3d, with the same outcome as with 1.0.0-preview.9. |
 | VecturaDB 1.0.0-preview.2 | VecturaDB 1.0.0-preview.3 | A volume with dense records, BM25 and explicit sparse vectors written by VecturaDB 1.0.0-preview.2, also on data of Chroma 1.5.9, then opened by 1.0.0-preview.3: the records intact, the same search results, new records written and found. |
 | VecturaDB 1.0.0-preview.2 | VecturaDB 1.0.0-preview.3.post1 | The same trial, with the same outcome. |
 | VecturaDB 1.0.0-preview.3 | VecturaDB 1.0.0-preview.3.post1 | The same trial from 1.0.0-preview.3, with the same outcome. |
@@ -259,10 +260,11 @@ table, each one tried first on a volume with real data. Everything else is refus
 | VecturaDB 1.0.0-preview.3 | VecturaDB 1.0.0-preview.5 | The same trial, with the same outcome. |
 | VecturaDB 1.0.0-preview.3.post1 | VecturaDB 1.0.0-preview.5 | The same trial, with the same outcome. |
 | VecturaDB 1.0.0-preview.4 | VecturaDB 1.0.0-preview.5 | The same trial, with the same outcome. |
+| VecturaDB 1.0.0-preview.9 | VecturaDB 1.0.0-preview.10.post1 | The same trial from 1.0.0-preview.9, with the same outcome. |
 
 A passage outside the table keeps the running Pod, and `UpgradeBlocked` says why: `ProductChangeNotKnown` from Chroma,
-`UpgradeNotKnown` within VecturaDB. The latest release of VecturaDB, 1.0.0-preview.9, enters the table with the passage from Chroma 1.5.9 only, after its trial: a release
-of VecturaDB before it does not pass to it.
+`UpgradeNotKnown` within VecturaDB. The latest release of VecturaDB, 1.0.0-preview.10.post1, enters the table with the passages from Chroma 1.5.9 and from 1.0.0-preview.9, the
+release before it, after their trial: an earlier release of VecturaDB does not pass to it.
 
 **Back to Chroma.** Chroma 1.5.9 opens data of VecturaDB and reads the records, documents and metadata of its HNSW collections, but not the sparse vectors,
 which stay in the data. Writing with Chroma to collections with BM25 fails with the Python client, and other clients write records

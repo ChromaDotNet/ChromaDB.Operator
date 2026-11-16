@@ -21,7 +21,8 @@ public class VecturaTests
 	private const string Vectura2 = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.4";
 	private const string VecturaPost1 = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.3.post1";
 	private const string Vectura5 = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.5";
-	private const string VecturaLatest = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.9";
+	private const string Vectura9 = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.9";
+	private const string VecturaLatest = "ghcr.io/vecturadb/vecturadb:1.0.0-preview.10.post1";
 
 	private static V1Alpha1Chroma OnData(string image, string? product, string? dataVersion, string? runningImage = null)
 	{
@@ -134,7 +135,7 @@ public class VecturaTests
 		Assert.That((created.Status.DataProduct, created.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.5")));
 	}
 
-	// The row of the latest release, 1.0.0-preview.9: from Chroma 1.5.9 only.
+	// The rows of the latest release, 1.0.0-preview.10.post1: from Chroma 1.5.9 and from the release before it, 1.0.0-preview.9.
 	[Test]
 	public void LatestAlongTheTable()
 	{
@@ -145,10 +146,23 @@ public class VecturaTests
 
 		var created = Decide(server, null);
 		Assert.That(created.DesiredPod!.Spec.Containers[0].Image, Is.EqualTo(VecturaLatest));
-		Assert.That((created.Status.DataProduct, created.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.9")));
+		Assert.That((created.Status.DataProduct, created.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.10.post1")));
 	}
 
-	// The latest release has no row from the releases of VecturaDB before it: the passage is refused, and the running Pod stays.
+	[Test]
+	public void PreviousReleaseToTheLatest()
+	{
+		var server = OnData(VecturaLatest, "vecturadb", "1.0.0-preview.9", Vectura9);
+		var replaced = Decide(server, RunningPod(server, Vectura9));
+		Assert.That(replaced.Action, Is.EqualTo(PodAction.Delete));
+		Assert.That(Condition(replaced, "UpgradeBlocked").Status, Is.EqualTo("False"));
+
+		var created = Decide(server, null);
+		Assert.That(created.DesiredPod!.Spec.Containers[0].Image, Is.EqualTo(VecturaLatest));
+		Assert.That((created.Status.DataProduct, created.Status.DataVersion), Is.EqualTo(("vecturadb", "1.0.0-preview.10.post1")));
+	}
+
+	// The latest release has no row from the releases of VecturaDB before 1.0.0-preview.9: the passage is refused, and the running Pod stays.
 	[TestCase("1.0.0-preview.5", Vectura5)]
 	[TestCase("1.0.0-preview.4", Vectura2)]
 	public void EarlierVecturaToTheLatestIsNotKnown(string dataVersion, string running)
@@ -156,7 +170,7 @@ public class VecturaTests
 		var server = OnData(VecturaLatest, "vecturadb", dataVersion, running);
 		var outcome = Decide(server, RunningPod(server, running));
 		Assert.That(Condition(outcome, "UpgradeBlocked").Reason, Is.EqualTo("UpgradeNotKnown"));
-		Assert.That(Condition(outcome, "UpgradeBlocked").Message, Does.Contain("Chroma 1.5.9 to VecturaDB 1.0.0-preview.9"));
+		Assert.That(Condition(outcome, "UpgradeBlocked").Message, Does.Contain("Chroma 1.5.9 to VecturaDB 1.0.0-preview.10.post1"));
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None), "the running Pod stays");
 	}
 
@@ -165,18 +179,18 @@ public class VecturaTests
 	[Test]
 	public void LatestToChromaForcedAndBack()
 	{
-		var server = OnData(Image159, "vecturadb", "1.0.0-preview.9", VecturaLatest);
+		var server = OnData(Image159, "vecturadb", "1.0.0-preview.10.post1", VecturaLatest);
 		server.Metadata.Annotations = new Dictionary<string, string> { [Labels.AllowProductChange] = "true" };
 		var forced = Decide(server, null);
 		Assert.That((forced.Status.DataProduct, forced.Status.DataVersion), Is.EqualTo(("chroma", "1.5.9")));
-		Assert.That(forced.Status.DataVersions, Is.EquivalentTo(new Dictionary<string, string> { ["chroma"] = "1.5.9", ["vecturadb"] = "1.0.0-preview.9" }));
+		Assert.That(forced.Status.DataVersions, Is.EquivalentTo(new Dictionary<string, string> { ["chroma"] = "1.5.9", ["vecturadb"] = "1.0.0-preview.10.post1" }));
 
 		var back = OnData(VecturaLatest, forced.Status.DataProduct, forced.Status.DataVersion, Image159);
 		back.Status.DataVersions = forced.Status.DataVersions;
 		Assert.That(Decide(back, RunningPod(back, Image159)).Action, Is.EqualTo(PodAction.Delete));
 		Assert.That(Decide(back, null).Action, Is.EqualTo(PodAction.Create));
 
-		var earlier = OnData(Vectura5, forced.Status.DataProduct, forced.Status.DataVersion, Image159);
+		var earlier = OnData(Vectura9, forced.Status.DataProduct, forced.Status.DataVersion, Image159);
 		earlier.Status.DataVersions = forced.Status.DataVersions;
 		Assert.That(Condition(Decide(earlier, RunningPod(earlier, Image159)), "UpgradeBlocked").Reason, Is.EqualTo("Downgrade"));
 	}
@@ -185,7 +199,7 @@ public class VecturaTests
 	[Test]
 	public void ReleaseBeforeTheLatestIsADowngrade()
 	{
-		var server = OnData(Vectura5, "vecturadb", "1.0.0-preview.9", VecturaLatest);
+		var server = OnData(Vectura9, "vecturadb", "1.0.0-preview.10.post1", VecturaLatest);
 		var outcome = Decide(server, RunningPod(server, VecturaLatest));
 		Assert.That(Condition(outcome, "UpgradeBlocked").Reason, Is.EqualTo("Downgrade"));
 		Assert.That(outcome.Action, Is.EqualTo(PodAction.None), "the running Pod stays");
